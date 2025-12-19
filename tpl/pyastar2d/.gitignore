@@ -1,0 +1,12 @@
+*.swp
+*.swo
+*.so
+*.pyc
+*.png
+*.cache
+*.egg-info
+*.eggs
+.vscode
+*.o
+build/
+.DS_Store

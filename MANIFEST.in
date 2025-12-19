@@ -1,0 +1,10 @@
+include pyproject.toml
+
+# Include the README and SECURITY documents
+include *.rst
+
+# Include the license file
+include LICENSE
+
+# Include examples files for testing
+include examples/example1.wav

@@ -1,0 +1,13 @@
+docs/
+tests/
+
+.DS_Store
+
+*.egg-info/
+
+.coverage
+coverage/
+
+gradio_cached_examples/
+__pycache__/
+docs/build/
