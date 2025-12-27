@@ -47,6 +47,13 @@ jobs:
           username: ${{ vars.BATBOT_DOCKERHUB_USERNAME }}
           password: ${{ secrets.BATBOT_DOCKERHUB_TOKEN }}
 
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       # Push tagged image (version tag + latest) to registries
       - name: Tagged Docker Hub
         if: ${{ github.event_name == 'push' && startsWith(github.event.ref, 'refs/tags/v') }}
@@ -71,6 +78,7 @@ jobs:
         run: |
           docker buildx build \
               -t kitware/batbot:${{ env.IMAGE_TAG }} \
+              -t ghcr.io/Kitware/batbot:${{ env.IMAGE_TAG }} \
               --platform linux/amd64 \
               --push \
               .
@@ -81,6 +89,7 @@ jobs:
         run: |
           docker buildx build \
               -t kitware/batbot:latest \
+              -t ghcr.io/Kitware/batbot:latest \
               --platform linux/amd64 \
               --push \
               .

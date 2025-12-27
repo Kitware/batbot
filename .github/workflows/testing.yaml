@@ -36,12 +36,10 @@ jobs:
           pip install -r requirements/runtime.txt
           pip install -r requirements/optional.txt
 
-      - name: Lint with flake8
+      - name: Check with pre-commit
         run: |
-          # stop the build if there are Python syntax errors or undefined names
-          flake8 . --count --show-source --statistics
-          # exit-zero treats all errors as warnings.
-          flake8 . --count --exit-zero --max-complexity=10 --statistics
+          pre-commit
+          pre-commit run --all-files
 
       - name: Run tests
         run: |
