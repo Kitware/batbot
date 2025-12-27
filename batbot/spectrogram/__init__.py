@@ -115,7 +115,7 @@ def plot_histogram(
     output_filename='histogram.png',
 ):
     if output_path is None:
-        return
+        return None, None, (None, None)
 
     if max_val is None:
         max_val = int(image.max())
@@ -1253,7 +1253,7 @@ def calculate_harmonic_and_echo_flags(
 
 @lp
 def compute_wrapper(
-    wav_filepath, annotations=None, output_folder='.', bitdepth=16, debug=True, **kwargs
+    wav_filepath, annotations=None, output_folder='.', bitdepth=16, debug=False, **kwargs
 ):
     """
     Compute the spectrograms for a given input WAV and saves them to disk.
@@ -1481,7 +1481,7 @@ def compute_wrapper(
 
     for key in segments:
         value = segments[key]
-        segments[key] = np.hstack(value) if len(value) > 0 else None.copy()
+        segments[key] = np.hstack(value) if len(value) > 0 else stft_db.copy()
 
     if debug_path:
         cv2.imwrite(join(debug_path, 'spectrogram.tif'), stft_db, [cv2.IMWRITE_TIFF_COMPRESSION, 1])

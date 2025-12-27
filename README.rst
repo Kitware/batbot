@@ -200,16 +200,16 @@ Reference `pre-commit's installation instructions <https://pre-commit.com/#insta
 The code base has been formatted by `Black <https://black.readthedocs.io/en/stable/>`_.  Furthermore, try to conform to ``PEP8``.  You should set up your preferred editor to use ``flake8`` as its Python linter, but pre-commit will ensure compliance before a git commit is completed.  This will use the ``flake8`` configuration within ``setup.cfg``, which ignores several errors and stylistic considerations.  See the ``setup.cfg`` file for a full and accurate listing of stylistic codes to ignore.
 
 
-.. |Tests| image:: https://github.com/Kitware/batbot/actions/workflows/testing.yml/badge.svg?branch=main
-    :target: https://github.com/Kitware/batbot/actions/workflows/testing.yml
+.. |Tests| image:: https://github.com/Kitware/batbot/actions/workflows/testing.yaml/badge.svg?branch=main
+    :target: https://github.com/Kitware/batbot/actions/workflows/testing.yaml
     :alt: GitHub CI
 
 .. |Codecov| image:: https://codecov.io/gh/Kitware/batbot/branch/main/graph/badge.svg?token=FR6ITMWQNI
     :target: https://app.codecov.io/gh/Kitware/batbot
     :alt: Codecov
 
-.. |Wheel| image:: https://github.com/Kitware/batbot/actions/workflows/python-publish.yml/badge.svg
-    :target: https://github.com/Kitware/batbot/actions/workflows/python-publish.yml
+.. |Wheel| image:: https://github.com/Kitware/batbot/actions/workflows/python-publish.yaml/badge.svg
+    :target: https://github.com/Kitware/batbot/actions/workflows/python-publish.yaml
     :alt: Python Wheel
 
 .. |Docker| image:: https://img.shields.io/docker/image-size/kitware/batbot/latest
