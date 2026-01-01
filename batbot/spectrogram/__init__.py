@@ -114,9 +114,6 @@ def plot_histogram(
     output_path='.',
     output_filename='histogram.png',
 ):
-    if output_path is None:
-        return
-
     if max_val is None:
         max_val = int(image.max())
 
@@ -140,10 +137,15 @@ def plot_histogram(
         hist_original = (hist_original / hist_original.max()) * hist.max()
 
     hist_ = np.argmax(hist)
-    hist_std = np.abs(image - hist_).mean()
+    image_ = image.astype(np.int32)
+    hist_std = np.abs(image_ - hist_).mean()
 
     csum = np.cumsum(hist) / hist.sum()
     csum_ = np.where(csum >= csum_threshold)[0].min()
+
+    retval = med_, std_, (hist_, hist_std)
+    if output_path is None:
+        return retval
 
     y_max = hist.max() * 1.01
     # Plot the histogram
@@ -165,7 +167,7 @@ def plot_histogram(
         [0, y_max],
         color='grey',
         linestyle='--',
-        label=f'Histogram Peak ({hist_:0.01f})',
+        label=f'Histogram Peak ({hist_:0.01f} +/- {hist_std:0.01f})',
     )
     plt.plot(
         [csum_] * 2,
@@ -193,7 +195,7 @@ def plot_histogram(
     )
     plt.close('all')
 
-    return med_, std_, (hist_, hist_std)
+    return retval
 
 
 def generate_waveplot(
@@ -830,7 +832,7 @@ def calculate_astar_grid_and_endpoints(
     costs = segment.copy()
     segmentmask_ = np.logical_not(segmentmask)
     costs[segmentmask_] = 0
-    write_contour_debug_image(costs, index, 7, 'costs', output_path=output_path)
+    write_contour_debug_image(costs, index, 8, 'costs', output_path=output_path)
 
     ys, xs = np.where(costs > 0)
     points = np.stack([ys, xs], axis=1, dtype=np.float32)
@@ -857,15 +859,15 @@ def calculate_astar_grid_and_endpoints(
     grid += 1
     assert grid.min() > 0
 
-    if output_path:
-        bounds = np.where(np.sum(costs, axis=0) > 0)
-        left = int(np.min(bounds))
-        right = int(np.max(bounds))
-        bounds = np.where(np.sum(costs, axis=1) > 0)
-        top = int(np.min(bounds))
-        bottom = int(np.max(bounds))
-        boundary = (top, bottom, left, right)
+    bounds = np.where(np.sum(costs, axis=0) > 0)
+    left = int(np.min(bounds))
+    right = int(np.max(bounds))
+    bounds = np.where(np.sum(costs, axis=1) > 0)
+    top = int(np.min(bounds))
+    bottom = int(np.max(bounds))
+    boundary = (top, bottom, left, right)
 
+    if output_path:
         height, width = costs.shape
 
         value = np.iinfo(canvas.dtype).max
@@ -879,7 +881,7 @@ def calculate_astar_grid_and_endpoints(
         cv2.circle(canvas, begin[::-1], 5, (0, value, 0), -1)
         cv2.circle(canvas, end[::-1], 5, (0, 0, value), -1)
 
-        write_contour_debug_image(canvas, index, 7, 'endpoints', output_path=output_path)
+        write_contour_debug_image(canvas, index, 8, 'endpoints', output_path=output_path)
 
     costs = segment.astype(np.float32)
     segmentmask_ = segmentmask.astype(np.float32)
@@ -1070,44 +1072,45 @@ def scale_pdf_contour(segment, index, output_path='.'):
     if np.any(np.isnan(y)):
         return segment, None, None
 
-    # Plot the histogram
-    plt.figure(figsize=(7, 7))
-    plt.title('Inverse PDF Scaling', y=1.16)
-    plt.xlim([segment.min(), segment.max()])
-    plt.ylim([-0.01, 1.01])
-    plt.xlabel('Frequency')
-    plt.ylabel('Probability')
+    if output_path:
+        # Plot the histogram
+        plt.figure(figsize=(7, 7))
+        plt.title('Inverse PDF Scaling', y=1.16)
+        plt.xlim([segment.min(), segment.max()])
+        plt.ylim([-0.01, 1.01])
+        plt.xlabel('Frequency')
+        plt.ylabel('Probability')
 
-    plt.axvspan(peak_db - 3 * peak_db_std, peak_db + 3 * peak_db_std, color='grey', alpha=0.15)
-    plt.axvspan(peak_db - 2 * peak_db_std, peak_db + 2 * peak_db_std, color='grey', alpha=0.15)
-    plt.axvspan(
-        peak_db - 1 * peak_db_std,
-        peak_db + 1 * peak_db_std,
-        color='grey',
-        alpha=0.15,
-        label='Standard Deviations σ={1,2,3}',
-    )
-    plt.plot(
-        [peak_db] * 2, [0, 1], color='orange', linestyle='--', label='Peak Histogram Frequency'
-    )
-    plt.axhline(0, color='black', linestyle='--', alpha=0.5)
-    plt.axhline(1, color='black', linestyle='--', alpha=0.5)
-    plt.plot(x, scaling, label='Weighting')
+        plt.axvspan(peak_db - 3 * peak_db_std, peak_db + 3 * peak_db_std, color='grey', alpha=0.15)
+        plt.axvspan(peak_db - 2 * peak_db_std, peak_db + 2 * peak_db_std, color='grey', alpha=0.15)
+        plt.axvspan(
+            peak_db - 1 * peak_db_std,
+            peak_db + 1 * peak_db_std,
+            color='grey',
+            alpha=0.15,
+            label='Standard Deviations σ={1,2,3}',
+        )
+        plt.plot(
+            [peak_db] * 2, [0, 1], color='orange', linestyle='--', label='Peak Histogram Frequency'
+        )
+        plt.axhline(0, color='black', linestyle='--', alpha=0.5)
+        plt.axhline(1, color='black', linestyle='--', alpha=0.5)
+        plt.plot(x, scaling, label='Weighting')
 
-    plt.legend(
-        bbox_to_anchor=(0.0, 1.02, 1.0, 0.102),
-        loc=3,
-        ncol=1,
-        mode='expand',
-        borderaxespad=0.0,
-    )
+        plt.legend(
+            bbox_to_anchor=(0.0, 1.02, 1.0, 0.102),
+            loc=3,
+            ncol=1,
+            mode='expand',
+            borderaxespad=0.0,
+        )
 
-    plt.savefig(
-        join(output_path, f'contour.{index}.00.histogram.scaling.png'),
-        dpi=150,
-        bbox_inches='tight',
-    )
-    plt.close('all')
+        plt.savefig(
+            join(output_path, f'contour.{index}.00.histogram.scaling.png'),
+            dpi=150,
+            bbox_inches='tight',
+        )
+        plt.close('all')
 
     scaling = np.hstack((scaling, scaling[-1:]))
     mask = scaling[segment - segment.min()]
@@ -1137,12 +1140,13 @@ def find_contour_and_peak(
     )
 
     # Display the image and plot all contours found
-    fig, ax = plt.subplots()
-    ax.imshow(segment, cmap=plt.cm.gray)
-    ax.set_xticks([])
-    ax.set_xticklabels([])
-    ax.set_yticks([])
-    ax.set_yticklabels([])
+    if output_path:
+        fig, ax = plt.subplots()
+        ax.imshow(segment, cmap=plt.cm.gray)
+        ax.set_xticks([])
+        ax.set_xticklabels([])
+        ax.set_yticks([])
+        ax.set_yticklabels([])
 
     max_points = [Point(*value) for value in max_locations]
     counter = {}
@@ -1154,10 +1158,12 @@ def find_contour_and_peak(
             if polygon.contains(max_point):
                 found.append(max_location)
         if len(found) > 0:
-            ax.plot(contour[:, 1], contour[:, 0], linewidth=2)
             x = gaussian_filter1d(contour[:, 1], sigma)
             y = gaussian_filter1d(contour[:, 0], sigma)
-            ax.plot(x, y, linewidth=1, linestyle='--')
+
+            if output_path:
+                ax.plot(contour[:, 1], contour[:, 0], linewidth=2)
+                ax.plot(x, y, linewidth=1, linestyle='--')
 
             contour_ = np.vstack((y, x), dtype=contour.dtype).T
             polygon_ = Polygon(contour).convex_hull
@@ -1167,13 +1173,14 @@ def find_contour_and_peak(
             rr, cc = draw.polygon(contour_[:, 0], contour_[:, 1], shape=segment.shape)
             segmentmask[rr, cc] = True
 
-    plt.savefig(
-        join(output_path, f'contour.{index}.05.contour.png'),
-        dpi=150,
-        pad_inches=0,
-        bbox_inches='tight',
-    )
-    plt.close('all')
+    if output_path:
+        plt.savefig(
+            join(output_path, f'contour.{index}.05.contour.png'),
+            dpi=150,
+            pad_inches=0,
+            bbox_inches='tight',
+        )
+        plt.close('all')
 
     # segmentmask = np.ones(segment.shape, dtype=bool)
 
@@ -1220,11 +1227,12 @@ def calculate_harmonic_and_echo_flags(
 
     harmonic_peak = None
     if harmonic_flag:
-        temp = canvas.copy()
-        temp[:, :, 2][harmonic] = np.iinfo(original.dtype).max
-        canvas = np.around(
-            (canvas.astype(np.float32) * 0.5) + (temp.astype(np.float32) * 0.5)
-        ).astype(canvas.dtype)
+        if output_path:
+            temp = canvas.copy()
+            temp[:, :, 2][harmonic] = np.iinfo(original.dtype).max
+            canvas = np.around(
+                (canvas.astype(np.float32) * 0.5) + (temp.astype(np.float32) * 0.5)
+            ).astype(canvas.dtype)
         try:
             temp = original.copy()
             temp[~harmonic] = 0
@@ -1235,11 +1243,12 @@ def calculate_harmonic_and_echo_flags(
 
     echo_peak = None
     if echo_flag:
-        temp = canvas.copy()
-        temp[:, :, 0][echo] = np.iinfo(original.dtype).max
-        canvas = np.around(
-            (canvas.astype(np.float32) * 0.5) + (temp.astype(np.float32) * 0.5)
-        ).astype(canvas.dtype)
+        if output_path:
+            temp = canvas.copy()
+            temp[:, :, 0][echo] = np.iinfo(original.dtype).max
+            canvas = np.around(
+                (canvas.astype(np.float32) * 0.5) + (temp.astype(np.float32) * 0.5)
+            ).astype(canvas.dtype)
         try:
             temp = original.copy()
             temp[~echo] = 0
@@ -1253,7 +1262,7 @@ def calculate_harmonic_and_echo_flags(
 
 @lp
 def compute_wrapper(
-    wav_filepath, annotations=None, output_folder='.', bitdepth=16, debug=True, **kwargs
+    wav_filepath, annotations=None, output_folder='.', bitdepth=16, debug=False, **kwargs
 ):
     """
     Compute the spectrograms for a given input WAV and saves them to disk.
@@ -1299,6 +1308,7 @@ def compute_wrapper(
     bands = bands[::-1]
     y_step_freq = float(bands[0] - bands[1])
     x_step_ms = float((1e3 * duration) / stft_db.shape[1])
+    bands = np.around(bands).astype(np.int32).tolist()
 
     # # Save the spectrogram image to disk
     # cv2.imwrite('debug.tif', stft_db, [cv2.IMWRITE_TIFF_COMPRESSION, 1])
@@ -1338,6 +1348,8 @@ def compute_wrapper(
     }
     metas = []
     for index, (start, stop) in tqdm.tqdm(list(enumerate(ranges))):
+        if index == 1:
+            break
         segment = stft_db[:, start:stop]
 
         # Step 0.1 - Debugging setup and find peak amplitude (will return None if disabled)
@@ -1388,12 +1400,12 @@ def compute_wrapper(
             original, index, segmentmask, harmonic, echo, canvas, output_path=debug_path
         )
 
-        # Step 8 - Remove harmonic and echo from segmentation
+        # Remove harmonic and echo from segmentation
         segment = remove_harmonic_and_echo(
             segment, index, harmonic, echo, threshold, output_path=debug_path
         )
 
-        # Step 7 - Calculate the A* cost grid and start/end points
+        # Step 8 - Calculate the A* cost grid and start/end points
         costs, grid, begin, end, boundary = calculate_astar_grid_and_endpoints(
             segment, index, segmentmask, peak, canvas, output_path=debug_path
         )
@@ -1406,17 +1418,17 @@ def compute_wrapper(
         if not significant:
             continue
 
-        # Step 8 - Extract optimal path from start to end using the cost grid
+        # Step 9 - Extract optimal path from start to end using the cost grid
         path = extract_contour_path(grid, begin, end, canvas, index, output_path=debug_path)
 
-        # Step 9 - Extract contour keypoints
+        # Step 10 - Extract contour keypoints
         path_smoothed, (knee, fc, heel), slopes = extract_contour_keypoints(
             path, canvas, index, peak, output_path=debug_path
         )
 
-        # Step 10 - Collect chirp metadata
+        # Step 11 - Collect chirp metadata
         metadata = {
-            'curve.(khz,ms)': [
+            'curve.(hz,ms)': [
                 (
                     bands[y],
                     (start + x) * x_step_ms,
@@ -1430,19 +1442,19 @@ def compute_wrapper(
             'fc.ms': (start + bands[fc[1]]) * x_step_ms,
             'hi fc:knee.ms': (start + bands[knee[1]]) * x_step_ms,
             'lo fc:heel.ms': (start + bands[heel[1]]) * x_step_ms,
-            'bandwidth.khz': bandwidth,
-            'hi f.khz': bands[top],
-            'lo f.khz': bands[bottom],
-            'peak f.khz': bands[peak[0]],
-            'fc.khz': bands[fc[0]],
-            'hi fc:knee.khz': bands[knee[0]],
-            'lo fc:heel.khz': bands[heel[0]],
+            'bandwidth.hz': bandwidth,
+            'hi f.hz': bands[top],
+            'lo f.hz': bands[bottom],
+            'peak f.hz': bands[peak[0]],
+            'fc.hz': bands[fc[0]],
+            'hi fc:knee.hz': bands[knee[0]],
+            'lo fc:heel.hz': bands[heel[0]],
             'harmonic.flag': harmonic_flag,
             'harmonic peak f.ms': (start + hamonic_peak[1]) * x_step_ms if harmonic_flag else None,
-            'harmonic peak f.khz': bands[hamonic_peak[0]] if harmonic_flag else None,
+            'harmonic peak f.hz': bands[hamonic_peak[0]] if harmonic_flag else None,
             'echo.flag': echo_flag,
             'echo peak f.ms': (start + echo_peak[1]) * x_step_ms if echo_flag else None,
-            'echo peak f.khz': bands[echo_peak[0]] if echo_flag else None,
+            'echo peak f.hz': bands[echo_peak[0]] if echo_flag else None,
         }
         metadata.update(slopes)
 
@@ -1450,18 +1462,20 @@ def compute_wrapper(
         for key, value in list(metadata.items()):
             if value is None:
                 continue
-            if key.endswith('.ms') or key.endswith('.khz'):
+            if key.endswith('.ms'):
                 metadata[key] = round(float(value), 3)
+            if key.endswith('.hz'):
+                metadata[key] = int(round(value))
             if key.endswith('.flag'):
                 metadata[key] = bool(value)
             if key.endswith('.y_px/x_px'):
                 key_ = key.replace('.y_px/x_px', '.khz/ms')
-                metadata[key_] = round(float(value * (y_step_freq / x_step_ms)), 9)
+                metadata[key_] = round(float(value * ((y_step_freq / 1000.0) / x_step_ms)), 3)
                 metadata.pop(key)
-            if key.endswith('.(khz,ms)'):
+            if key.endswith('.(hz,ms)'):
                 metadata[key] = [
                     (
-                        round(float(val1), 3),
+                        int(round(val1)),
                         round(float(val2), 3),
                     )
                     for val1, val2 in value
@@ -1477,60 +1491,81 @@ def compute_wrapper(
         segments['stft_db'].append(stft_db[:, start + trim_begin : start + trim_end])
         segments['waveplot'].append(waveplot[:, start + trim_begin : start + trim_end])
         segments['costs'].append(costs[:, trim_begin:trim_end])
-        segments['canvas'].append(canvas[:, trim_begin:trim_end])
+        if debug_path:
+            segments['canvas'].append(canvas[:, trim_begin:trim_end])
 
-    for key in segments:
+    for key in list(segments.keys()):
         value = segments[key]
-        segments[key] = np.hstack(value) if len(value) > 0 else None.copy()
+        if len(value) == 0:
+            segments.pop(key)
+            continue
+        segments[key] = np.hstack(value)
 
     if debug_path:
         cv2.imwrite(join(debug_path, 'spectrogram.tif'), stft_db, [cv2.IMWRITE_TIFF_COMPRESSION, 1])
-        cv2.imwrite(
-            join(debug_path, 'spectrogram.compressed.tif'),
-            segments['stft_db'],
-            [cv2.IMWRITE_TIFF_COMPRESSION, 1],
-        )
         cv2.imwrite(join(debug_path, 'spectrogram.waveplot.png'), waveplot)
-        cv2.imwrite(join(debug_path, 'spectrogram.compressed.waveplot.png'), segments['waveplot'])
-        temp_top = np.stack((segments['stft_db'], segments['stft_db'], segments['stft_db']), axis=2)
-        temp_bot = cv2.resize(
-            segments['waveplot'], temp_top.shape[:2][::-1], interpolation=cv2.INTER_LINEAR
-        )
-        temp_bot = temp_bot.astype(np.float32) * (
-            np.iinfo(temp_top.dtype).max / np.iinfo(temp_bot.dtype).max
-        )
-        temp_bot = np.around(temp_bot).astype(temp_top.dtype)
-        temp = np.vstack((temp_top, temp_bot))
-        cv2.imwrite(join(debug_path, 'spectrogram.compressed.combined.png'), temp)
-        cv2.imwrite(
-            join(debug_path, 'spectrogram.compressed.threshold.tif'),
-            segments['costs'],
-            [cv2.IMWRITE_TIFF_COMPRESSION, 1],
-        )
-        temp = segments['costs'].copy()
-        flags = segments['costs'] == 0
-        temp = normalize_stft(temp, None, np.uint8)
-        temp = cv2.applyColorMap(temp, cv2.COLORMAP_JET)
-        temp[:, :, 0][flags] = 0
-        temp[:, :, 1][flags] = 0
-        temp[:, :, 2][flags] = 0
-        cv2.imwrite(
-            join(debug_path, 'spectrogram.compressed.threshold.jet.tif'),
-            temp,
-            [cv2.IMWRITE_TIFF_COMPRESSION, 1],
-        )
-        cv2.imwrite(
-            join(debug_path, 'spectrogram.compressed.keypoints.tif'),
-            segments['canvas'],
-            [cv2.IMWRITE_TIFF_COMPRESSION, 1],
-        )
+
+        if 'stft_db' in segments:
+            cv2.imwrite(
+                join(debug_path, 'spectrogram.compressed.tif'),
+                segments['stft_db'],
+                [cv2.IMWRITE_TIFF_COMPRESSION, 1],
+            )
+
+        if 'waveplot' in segments:
+            cv2.imwrite(
+                join(debug_path, 'spectrogram.compressed.waveplot.png'), segments['waveplot']
+            )
+
+        if 'stft_db' in segments and 'waveplot' in segments:
+            temp_top = np.stack(
+                (segments['stft_db'], segments['stft_db'], segments['stft_db']), axis=2
+            )
+            temp_bot = cv2.resize(
+                segments['waveplot'], temp_top.shape[:2][::-1], interpolation=cv2.INTER_LINEAR
+            )
+            temp_bot = temp_bot.astype(np.float32) * (
+                np.iinfo(temp_top.dtype).max / np.iinfo(temp_bot.dtype).max
+            )
+            temp_bot = np.around(temp_bot).astype(temp_top.dtype)
+            temp = np.vstack((temp_top, temp_bot))
+            cv2.imwrite(join(debug_path, 'spectrogram.compressed.combined.png'), temp)
+
+        if 'costs' in segments:
+            cv2.imwrite(
+                join(debug_path, 'spectrogram.compressed.threshold.tif'),
+                segments['costs'],
+                [cv2.IMWRITE_TIFF_COMPRESSION, 1],
+            )
+            temp = segments['costs'].copy()
+            flags = segments['costs'] == 0
+            temp = normalize_stft(temp, None, np.uint8)
+            temp = cv2.applyColorMap(temp, cv2.COLORMAP_JET)
+            temp[:, :, 0][flags] = 0
+            temp[:, :, 1][flags] = 0
+            temp[:, :, 2][flags] = 0
+            cv2.imwrite(
+                join(debug_path, 'spectrogram.compressed.threshold.jet.tif'),
+                temp,
+                [cv2.IMWRITE_TIFF_COMPRESSION, 1],
+            )
+
+        if 'canvas' in segments:
+            cv2.imwrite(
+                join(debug_path, 'spectrogram.compressed.keypoints.tif'),
+                segments['canvas'],
+                [cv2.IMWRITE_TIFF_COMPRESSION, 1],
+            )
 
     output_paths = []
     compressed_paths = []
     datas = [
         (output_paths, 'jpg', stft_db),
-        (compressed_paths, 'compressed.jpg', segments['stft_db']),
     ]
+    if 'stft_db' in segments:
+        datas += [
+            (compressed_paths, 'compressed.jpg', segments['stft_db']),
+        ]
 
     for accumulator, tag, data in datas:
         if data.dtype != np.uint8:
@@ -1559,29 +1594,33 @@ def compute_wrapper(
     metadata = {
         'wav.path': wav_filepath,
         'spectrogram': {
-            'true.path': output_paths,
+            'uncompressed.path': output_paths,
             'compressed.path': compressed_paths,
         },
         'threshold.amp': int(round(255.0 * (threshold / max_value))),
-        'sr.khz': sr,
+        'sr.hz': int(sr),
         'duration.ms': round(duration * 1e3, 3),
         'frequencies': {
-            'min.khz': int(FREQ_MIN),
-            'max.khz': int(FREQ_MAX),
-            'pixels.khz': [round(float(band), 3) for band in bands],
+            'min.hz': int(FREQ_MIN),
+            'max.hz': int(FREQ_MAX),
+            'pixels.hz': bands,
         },
         'size': {
-            'true': {
+            'uncompressed': {
                 'width.px': stft_db.shape[1],
                 'height.px': stft_db.shape[0],
             },
-            'compressed': {
-                'width.px': segments['stft_db'].shape[1],
-                'height.px': segments['stft_db'].shape[0],
-            },
+            'compressed': None,
         },
         'segments': metas,
     }
+    if 'stft_db' in segments:
+        metadata['size']['compressed'] = (
+            {
+                'width.px': segments['stft_db'].shape[1],
+                'height.px': segments['stft_db'].shape[0],
+            },
+        )
 
     metadata_path = join(output_folder, f'{base}.metadata.json')
     with open(metadata_path, 'w') as metafile:
