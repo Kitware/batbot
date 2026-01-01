@@ -1348,8 +1348,6 @@ def compute_wrapper(
     }
     metas = []
     for index, (start, stop) in tqdm.tqdm(list(enumerate(ranges))):
-        if index == 1:
-            break
         segment = stft_db[:, start:stop]
 
         # Step 0.1 - Debugging setup and find peak amplitude (will return None if disabled)
