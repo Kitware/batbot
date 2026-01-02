@@ -4,6 +4,10 @@ Kitware BatBot
 
 |Tests| |Codecov| |Wheel| |Docker| |ReadTheDocs| |Huggingface|
 
+image:: https://raw.githubusercontent.com/Kitware/batbot/jrp/ci-cd-fixes/assets/logo.png
+   :alt: Batbot
+   :align: center
+
 .. contents:: Quick Links
     :backlinks: none
 
