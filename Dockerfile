@@ -31,14 +31,11 @@ RUN python3 -m venv /venv
 # hadolint ignore=DL3003,DL3013
 RUN /venv/bin/pip install --no-cache-dir -r requirements/runtime.txt \
  && /venv/bin/pip install --no-cache-dir -r requirements/optional.txt \
- && cd tpl/pyastar2d/ \
- && /venv/bin/pip install --no-cache-dir -e . \
- && cd ../.. \
- && /venv/bin/pip install --no-cache-dir -e . \
- && if [ "$(uname -m)" != "aarch64" ] \
-       ; then \
-       /venv/bin/pip uninstall -y onnxruntime \
-       /venv/bin/pip install --no-cache-dir onnxruntime-gpu \
-       ; fi
+ && /venv/bin/pip install --no-cache-dir -e .
+ # && if [ "$(uname -m)" != "aarch64" ] \
+ #       ; then \
+ #       /venv/bin/pip uninstall -y onnxruntime \
+ #       /venv/bin/pip install --no-cache-dir onnxruntime-gpu \
+ #       ; fi
 
 CMD [".", "/venv/bin/activate", "&&", "exec", "python", "app.py"]
