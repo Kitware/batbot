@@ -17,6 +17,7 @@ Development Environment
 -----------------------
 
 .. code-block:: bash
+
     # Find repo on host machine
     cd ~/code/batbot
 
