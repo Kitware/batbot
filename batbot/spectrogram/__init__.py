@@ -1614,7 +1614,7 @@ def compute_wrapper(
             'uncompressed.path': output_paths,
             'compressed.path': compressed_paths,
         },
-        'mean_threshold.amp': int(round(255.0 * (global_threshold / max_value))),
+        'global_threshold.amp': int(round(255.0 * (global_threshold / max_value))),
         'sr.hz': int(sr),
         'duration.ms': round(duration * 1e3, 3),
         'frequencies': {
