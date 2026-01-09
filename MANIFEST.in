@@ -1,5 +1,3 @@
-include pyproject.toml
-
 # Include the README and SECURITY documents
 include *.rst
 
