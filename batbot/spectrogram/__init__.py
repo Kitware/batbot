@@ -138,7 +138,7 @@ def plot_histogram(
         hist = gaussian_filter1d(hist, smoothing, mode='nearest')
         hist_original = (hist_original / hist_original.max()) * hist.max()
 
-    mode_ = np.argmax(hist) # histogram mode
+    mode_ = np.argmax(hist)  # histogram mode
 
     csum = np.cumsum(hist) / hist.sum()
     csum_ = np.where(csum >= csum_threshold)[0].min()
@@ -260,16 +260,18 @@ def load_stft(
     # Convert the complex power (amplitude + phase) into amplitude (decibels)
     stft_db = librosa.power_to_db(np.abs(stft) ** 2, ref=np.max)
     # Retrieve time vector in seconds corresponding to STFT
-    time_vec = librosa.frames_to_time(range(stft_db.shape[1]), sr=sr, hop_length=hop_length, n_fft=n_fft)
+    time_vec = librosa.frames_to_time(
+        range(stft_db.shape[1]), sr=sr, hop_length=hop_length, n_fft=n_fft
+    )
 
     # Remove frequencies that we do not need [FREQ_MIN - FREQ_MAX]
-    bands = librosa.fft_frequencies(sr=sr, n_fft=n_fft) # band center frequencies
-    delta_f = bands[1] - bands[0] # bandwidth
+    bands = librosa.fft_frequencies(sr=sr, n_fft=n_fft)  # band center frequencies
+    delta_f = bands[1] - bands[0]  # bandwidth
 
     goods = []
     for index in range(len(bands)):
-        band_min = bands[index] - delta_f/2.0
-        band_max = bands[index] + delta_f/2.0
+        band_min = bands[index] - delta_f / 2.0
+        band_max = bands[index] + delta_f / 2.0
         # accept bands with any part of their range within interval [FREQ_MIN, FREQ_MAX]
         if FREQ_MIN <= band_max and band_min <= FREQ_MAX:
             goods.append(index)
@@ -277,8 +279,8 @@ def load_stft(
     max_index = max(goods)
 
     # Return only valid frequency bands
-    stft_db = stft_db[min_index:max_index+1, :]
-    bands = bands[min_index:max_index+1]
+    stft_db = stft_db[min_index : max_index + 1, :]
+    bands = bands[min_index : max_index + 1]
 
     waveplot = generate_waveplot(waveform, stft_db, hop_length=hop_length)
 
@@ -337,7 +339,9 @@ def normalize_stft(data, value=1.0, dtype=None):
     return data
 
 
-def calculate_window_and_stride(stft_db, duration, window_size_ms=12, strides_per_window=3, time_vec=None):
+def calculate_window_and_stride(
+    stft_db, duration, window_size_ms=12, strides_per_window=3, time_vec=None
+):
     # Create a horizontal (time) sliding window of Numpy views
     #   Window: ~12ms
     #   Stride: ~4ms
@@ -348,7 +352,7 @@ def calculate_window_and_stride(stft_db, duration, window_size_ms=12, strides_pe
     else:
         # estimate the window size based on audio file length and STFT length
         window = stft_db.shape[1] / (duration * 1e3) * window_size_ms
-    
+
     stride = window / strides_per_window
 
     window = int(round(window))
@@ -585,7 +589,6 @@ def tighten_ranges(
             island_stop += start
             ranges_.append((island_start, island_stop))
 
-
         if output_path:
             # Plot the skew and spectrogram
             plt.figure()
@@ -716,7 +719,9 @@ def normalize_contour(segment, index, dtype=None, blur=True, kernel=5, output_pa
 
     if blur:
         # segment = cv2.erode(segment, np.ones((3, 3), np.uint8), iterations=1)
-        segment = cv2.GaussianBlur(segment, (kernel, kernel), sigmaX=4, sigmaY=4, borderType=cv2.BORDER_DEFAULT)
+        segment = cv2.GaussianBlur(
+            segment, (kernel, kernel), sigmaX=4, sigmaY=4, borderType=cv2.BORDER_DEFAULT
+        )
 
     segment = normalize_stft(segment, None, dtype)
 
@@ -767,7 +772,9 @@ def find_harmonic(segmentmask, index, freq_offset, kernel=15, output_path='.'):
     harmonic[tuple(locations)] = True
 
     harmonic_ = harmonic.astype(np.uint8) * 255
-    harmonic_ = cv2.GaussianBlur(harmonic_, (kernel, kernel), sigmaX=4, sigmaY=4, borderType=cv2.BORDER_DEFAULT)
+    harmonic_ = cv2.GaussianBlur(
+        harmonic_, (kernel, kernel), sigmaX=4, sigmaY=4, borderType=cv2.BORDER_DEFAULT
+    )
     write_contour_debug_image(harmonic_, index, 7, 'harmonic', output_path)
 
     return harmonic
@@ -788,7 +795,9 @@ def find_echo(segmentmask, index, kernel=15, output_path='.'):
         echo[maxy, maxx:] = True
 
     echo_ = echo.astype(np.uint8) * 255
-    echo_ = cv2.GaussianBlur(echo_, (kernel, kernel), sigmaX=4, sigmaY=4, borderType=cv2.BORDER_DEFAULT)
+    echo_ = cv2.GaussianBlur(
+        echo_, (kernel, kernel), sigmaX=4, sigmaY=4, borderType=cv2.BORDER_DEFAULT
+    )
     write_contour_debug_image(echo_, index, 7, 'echo', output_path)
 
     return echo
@@ -800,7 +809,12 @@ def remove_harmonic_and_echo(
     combined = np.logical_or(harmonic, echo)
 
     combined_ = combined.astype(np.uint8) * 255
-    combined_ = cv2.GaussianBlur(combined_, (kernel, kernel), sigmaX=4, sigmaY=4, borderType=cv2.BORDER_DEFAULT) / 255.0
+    combined_ = (
+        cv2.GaussianBlur(
+            combined_, (kernel, kernel), sigmaX=4, sigmaY=4, borderType=cv2.BORDER_DEFAULT
+        )
+        / 255.0
+    )
     write_contour_debug_image(combined_, index, 7, 'combined', output_path)
 
     dtype = segment.dtype
@@ -890,7 +904,9 @@ def calculate_astar_grid_and_endpoints(
 
     costs = segment.astype(np.float32)
     segmentmask_ = segmentmask.astype(np.float32)
-    segmentmask_ = cv2.GaussianBlur(segmentmask_, (kernel, kernel), sigmaX=4, sigmaY=4, borderType=cv2.BORDER_DEFAULT)
+    segmentmask_ = cv2.GaussianBlur(
+        segmentmask_, (kernel, kernel), sigmaX=4, sigmaY=4, borderType=cv2.BORDER_DEFAULT
+    )
     costs *= segmentmask_
     costs = normalize_stft(costs, None, segment.dtype)
 
@@ -1138,12 +1154,20 @@ def morph_open_contour(segment, index, output_path='.'):
 
 
 def find_contour_and_peak(
-    segment, index, max_locations, peak_db=None, peak_db_std=None, threshold_std=2.0, sigma=5, output_path='.', threshold=None
+    segment,
+    index,
+    max_locations,
+    peak_db=None,
+    peak_db_std=None,
+    threshold_std=2.0,
+    sigma=5,
+    output_path='.',
+    threshold=None,
 ):
 
     if not threshold:
-        # Apply threshold equal to normalized (and smoothed) segment histogram mode, 
-        # minus the estimated noise standard deviation scaled by threshold_std 
+        # Apply threshold equal to normalized (and smoothed) segment histogram mode,
+        # minus the estimated noise standard deviation scaled by threshold_std
         # (note that these were computed prior to CDF weighting)
         threshold = peak_db - threshold_std * peak_db_std
 
@@ -1223,7 +1247,9 @@ def calculate_harmonic_and_echo_flags(
     nonzeros = original > 0
     negative = ~np.logical_or(np.logical_or(harmonic, echo), segmentmask)
     negative_ = negative.astype(np.uint8) * 255
-    negative_ = cv2.GaussianBlur(negative_, (kernel, kernel), sigmaX=4, sigmaY=4, borderType=cv2.BORDER_DEFAULT)
+    negative_ = cv2.GaussianBlur(
+        negative_, (kernel, kernel), sigmaX=4, sigmaY=4, borderType=cv2.BORDER_DEFAULT
+    )
     write_contour_debug_image(negative_, index, 7, 'negative', output_path=output_path)
 
     negative_skew = scipy.stats.skew(original[np.logical_and(nonzeros, negative)])
@@ -1326,7 +1352,9 @@ def compute_wrapper(
     # cv2.imwrite('debug.tif', stft_db, [cv2.IMWRITE_TIFF_COMPRESSION, 1])
 
     # Plot the histogram, ignoring any non-zero values (will no-op if output_path is None)
-    global_med_db, global_std_db, global_peak_db = plot_histogram(stft_db, ignore_zeros=True, smoothing=512, output_path=debug_path)
+    global_med_db, global_std_db, global_peak_db = plot_histogram(
+        stft_db, ignore_zeros=True, smoothing=512, output_path=debug_path
+    )
     # Estimate a global threshold for finding the edges of bat call contours
     global_threshold_std = 2.0
     global_threshold = global_peak_db - global_threshold_std * global_std_db
@@ -1391,7 +1419,13 @@ def compute_wrapper(
         # Step 5 - Find primary contour that contains max amplitude
         # (To use a local instead of global threshold, remove the threshold argument here)
         segmentmask, peak, segment_threshold = find_contour_and_peak(
-            segment, index, max_locations, peak_db, peak_db_std, output_path=debug_path, threshold=global_threshold
+            segment,
+            index,
+            max_locations,
+            peak_db,
+            peak_db_std,
+            output_path=debug_path,
+            threshold=global_threshold,
         )
 
         if peak is None:
@@ -1433,7 +1467,9 @@ def compute_wrapper(
             continue
 
         # Step 9 - Extract optimal path from start to end using the cost grid
-        path = extract_contour_path(grid, call_begin, call_end, canvas, index, output_path=debug_path)
+        path = extract_contour_path(
+            grid, call_begin, call_end, canvas, index, output_path=debug_path
+        )
 
         # Step 10 - Extract contour keypoints
         path_smoothed, (knee, fc, heel), slopes = extract_contour_keypoints(
