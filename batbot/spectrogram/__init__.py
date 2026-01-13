@@ -239,7 +239,7 @@ def generate_waveplot(
     return waveplot
 
 
-@lp
+# @lp
 def load_stft(
     wav_filepath,
     sr=250e3,
@@ -299,7 +299,7 @@ def load_stft(
     return stft_db, waveplot, sr, bands, duration, min_index, time_vec
 
 
-@lp
+# @lp
 def gain_stft(stft_db, gain_db=80.0, autogain_stddev=5.0, fast_mode=False):
     # Subtract per-frequency median DB
     med = np.median(stft_db, axis=1).reshape(-1, 1)
@@ -403,7 +403,7 @@ def create_coarse_candidates(stft_db, window, stride, threshold_stddev=3.0):
     return candidates, candidate_dbs
 
 
-@lp
+# @lp
 def filter_candidates_to_ranges(
     stft_db,
     candidates,
@@ -1319,7 +1319,7 @@ def calculate_harmonic_and_echo_flags(
     return harmonic_flag, harmonic_peak, echo_flag, echo_peak
 
 
-@lp
+# @lp
 def compute_wrapper(
     wav_filepath,
     annotations=None,
