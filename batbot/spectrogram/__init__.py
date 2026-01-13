@@ -133,10 +133,10 @@ def plot_histogram(
     # if ignore_zeros:
     #     assert hist[0] == 0
 
-    hist_original = hist.copy()
+    if output_path: hist_original = hist.copy()
     if smoothing:
         hist = gaussian_filter1d(hist, smoothing, mode='nearest')
-        hist_original = (hist_original / hist_original.max()) * hist.max()
+        if output_path: hist_original = (hist_original / hist_original.max()) * hist.max()
 
     mode_ = np.argmax(hist)  # histogram mode
 
@@ -236,9 +236,9 @@ def generate_waveplot(
 
     return waveplot
 
-
+@lp
 def load_stft(
-    wav_filepath, sr=250e3, n_fft=512, window='blackmanharris', win_length=256, hop_length=16
+    wav_filepath, sr=250e3, n_fft=512, window='blackmanharris', win_length=256, hop_length=16, fast_mode=False
 ):
     assert exists(wav_filepath)
     log.debug(f'Computing spectrogram on {wav_filepath}')
@@ -282,12 +282,15 @@ def load_stft(
     stft_db = stft_db[min_index : max_index + 1, :]
     bands = bands[min_index : max_index + 1]
 
-    waveplot = generate_waveplot(waveform, stft_db, hop_length=hop_length)
+    if fast_mode:
+        waveplot = []
+    else:
+        waveplot = generate_waveplot(waveform, stft_db, hop_length=hop_length)
 
     return stft_db, waveplot, sr, bands, duration, min_index, time_vec
 
-
-def gain_stft(stft_db, gain_db=80.0, autogain_stddev=5.0):
+@lp
+def gain_stft(stft_db, gain_db=80.0, autogain_stddev=5.0, fast_mode=False):
     # Subtract per-frequency median DB
     med = np.median(stft_db, axis=1).reshape(-1, 1)
     stft_db -= med
@@ -298,14 +301,15 @@ def gain_stft(stft_db, gain_db=80.0, autogain_stddev=5.0):
     assert stft_db.max() == 0
     stft_db += gain_db
 
-    # Calculate the non-zero median DB and MAD
-    #   autogain signal if (median - alpha * deviation) is higher than provided gain
-    temp = stft_db[stft_db > 0]
-    med_db = np.median(temp)
-    std_db = scipy.stats.median_abs_deviation(temp, axis=None, scale='normal')
-    autogain_value = med_db - (autogain_stddev * std_db)
-    if autogain_value > 0:
-        stft_db -= autogain_value
+    if not fast_mode:
+        # Calculate the non-zero median DB and MAD
+        #   autogain signal if (median - alpha * deviation) is higher than provided gain
+        temp = stft_db[stft_db > 0]
+        med_db = np.median(temp)
+        std_db = scipy.stats.median_abs_deviation(temp, axis=None, scale='normal')
+        autogain_value = med_db - (autogain_stddev * std_db)
+        if autogain_value > 0:
+            stft_db -= autogain_value
 
     # Clip values below zero
     stft_db = np.clip(stft_db, 0.0, None)
@@ -388,12 +392,12 @@ def create_coarse_candidates(stft_db, window, stride, threshold_stddev=3.0):
 
     return candidates, candidate_dbs
 
-
+@lp
 def filter_candidates_to_ranges(
-    stft_db, candidates, window=16, skew_stddev=2.0, area_percent=0.10, output_path=None
+    stft_db, candidates, window=16, skew_stddev=2.0, area_percent=0.10, output_path=None, fast_mode=False
 ):
     # Filter the candidates based on their distribution skewness
-    stride_ = 2
+    stride_ = 2 if not fast_mode else 16
     buffer = int(round(window / stride_ / 2))
 
     reject_idxs = []
@@ -1300,7 +1304,7 @@ def calculate_harmonic_and_echo_flags(
 
 @lp
 def compute_wrapper(
-    wav_filepath, annotations=None, output_folder='.', bitdepth=16, debug=False, **kwargs
+    wav_filepath, annotations=None, output_folder='.', bitdepth=16, fast_mode=False, debug=False, **kwargs
 ):
     """
     Compute the spectrograms for a given input WAV and saves them to disk.
@@ -1324,6 +1328,7 @@ def compute_wrapper(
     """
     base = splitext(basename(wav_filepath))[0]
 
+    if fast_mode: bitdepth = 8
     assert bitdepth in [8, 16]
     dtype = np.uint8 if bitdepth == 8 else np.uint16
 
@@ -1332,10 +1337,10 @@ def compute_wrapper(
     debug_path = get_debug_path(output_folder, wav_filepath, enabled=debug)
 
     # Load the spectrogram from a WAV file on disk
-    stft_db, waveplot, sr, bands, duration, freq_offset, time_vec = load_stft(wav_filepath)
+    stft_db, waveplot, sr, bands, duration, freq_offset, time_vec = load_stft(wav_filepath, fast_mode=fast_mode)
 
     # Apply a dynamic range to a fixed dB range
-    stft_db = gain_stft(stft_db)
+    stft_db = gain_stft(stft_db, fast_mode=fast_mode)
 
     # Bin the floating point data to X-bit integers (X=8 or X=16)
     stft_db = normalize_stft(stft_db, None, dtype)
@@ -1351,20 +1356,25 @@ def compute_wrapper(
     # # Save the spectrogram image to disk
     # cv2.imwrite('debug.tif', stft_db, [cv2.IMWRITE_TIFF_COMPRESSION, 1])
 
-    # Plot the histogram, ignoring any non-zero values (will no-op if output_path is None)
-    global_med_db, global_std_db, global_peak_db = plot_histogram(
-        stft_db, ignore_zeros=True, smoothing=512, output_path=debug_path
-    )
-    # Estimate a global threshold for finding the edges of bat call contours
-    global_threshold_std = 2.0
-    global_threshold = global_peak_db - global_threshold_std * global_std_db
+    if not fast_mode:
+        # Plot the histogram, ignoring any non-zero values (will no-op if output_path is None)
+        global_med_db, global_std_db, global_peak_db = plot_histogram(
+            stft_db, ignore_zeros=True, smoothing=512, output_path=debug_path
+        )
+        # Estimate a global threshold for finding the edges of bat call contours
+        global_threshold_std = 2.0
+        global_threshold = global_peak_db - global_threshold_std * global_std_db
+    else:
+        # Fast mode skips bat call segmentation
+        global_threshold = 0.0
 
     # Get a distribution of the max candidate locations
-    window, stride = calculate_window_and_stride(stft_db, duration, time_vec=time_vec)
+    strides_per_window = 3 if not fast_mode else 6
+    window, stride = calculate_window_and_stride(stft_db, duration, strides_per_window=strides_per_window, time_vec=time_vec)
     candidates, candidate_max_dbs = create_coarse_candidates(stft_db, window, stride)
 
     # Filter all candidates to the ranges that have a substantial right-side skew
-    ranges, reject_idxs = filter_candidates_to_ranges(stft_db, candidates, output_path=debug_path)
+    ranges, reject_idxs = filter_candidates_to_ranges(stft_db, candidates, output_path=debug_path, fast_mode=fast_mode)
 
     # Add in user-specified annotations to ranges
     if annotations:
@@ -1379,172 +1389,183 @@ def compute_wrapper(
     # Plot the chirp candidates (will no-op if output_path is None)
     plot_chirp_candidates(stft_db, candidate_max_dbs, ranges, reject_idxs, output_path=debug_path)
 
-    # Tighten the ranges by looking for substantial right-side skew (use stride for a smaller sampling window)
-    ranges = tighten_ranges(stft_db, ranges, stride, duration, output_path=debug_path)
+    if fast_mode:
+        # Apply reduced processing without segment refinement or metadata calculation
+        segments = {'stft_db': [] }
+        # Remove a fraction of the window length when not doing call segmentation
+        crop_length = max(0, int(round(0.75 * window - 1)))
+        for start, stop in ranges:
+            segments['stft_db'].append(stft_db[:, start + crop_length: stop - crop_length])
+        metas = {}
 
-    # Extract chirp metrics and metadata
-    segments = {
-        'stft_db': [],
-        'waveplot': [],
-        'costs': [],
-        'canvas': [],
-    }
-    metas = []
-    for index, (start, stop) in tqdm.tqdm(list(enumerate(ranges))):
-        segment = stft_db[:, start:stop]
+    else:
 
-        # Step 0.1 - Debugging setup and find peak amplitude (will return None if disabled)
-        canvas = create_contour_debug_canvas(segment, index, output_path=debug_path)
+        # Tighten the ranges by looking for substantial right-side skew (use stride for a smaller sampling window)
+        ranges = tighten_ranges(stft_db, ranges, stride, duration, output_path=debug_path)
 
-        # Step 0.2 - Find the location(s) of peak amplitude
-        max_locations = find_max_locations(segment)
-
-        # Step 1 - Scale with PDF
-        segment, peak_db, peak_db_std = scale_pdf_contour(segment, index, output_path=debug_path)
-        if None in {peak_db, peak_db_std}:
-            continue
-
-        # Step 2 - Apply median filtering to contour
-        segment = filter_contour(segment, index, output_path=debug_path)
-
-        # Step 3 - Apply Morphology Open to contour
-        segment = morph_open_contour(segment, index, output_path=debug_path)
-
-        # Step 4 - Normalize contour
-        segment = normalize_contour(segment, index, output_path=debug_path)
-
-        # # Step 5 (OLD) - Threshold contour
-        # segment, med_db, std_db, peak_db = threshold_contour(segment, index, output_path=debug_path)
-
-        # Step 5 - Find primary contour that contains max amplitude
-        # (To use a local instead of global threshold, remove the threshold argument here)
-        segmentmask, peak, segment_threshold = find_contour_and_peak(
-            segment,
-            index,
-            max_locations,
-            peak_db,
-            peak_db_std,
-            output_path=debug_path,
-            threshold=global_threshold,
-        )
-
-        if peak is None:
-            continue
-
-        # Step 6 - Create final segmentmask
-        segmentmask = refine_segmentmask(segmentmask, index, output_path=debug_path)
-
-        # # Step 6 (OLD) - Find the contour with the (most) max amplitude location(s)
-        # valid, segmentmask, peak = find_contour_connected_components(segment, index, max_locations, output_path=debug_path)
-        # # Step 6 (OLD) - Refine contour by removing any harmonic or echo
-        # segmentmask, peak = refine_contour(segment_, index, max_locations, segmentmask, peak, output_path=debug_path)
-
-        # Step 7 - Calculate the first order harmonic and echo region
-        harmonic = find_harmonic(segmentmask, index, freq_offset, output_path=debug_path)
-        echo = find_echo(segmentmask, index, output_path=debug_path)
-
-        original = stft_db[:, start:stop]
-        harmonic_flag, hamonic_peak, echo_flag, echo_peak = calculate_harmonic_and_echo_flags(
-            original, index, segmentmask, harmonic, echo, canvas, output_path=debug_path
-        )
-
-        # Remove harmonic and echo from segmentation
-        segment = remove_harmonic_and_echo(
-            segment, index, harmonic, echo, global_threshold, output_path=debug_path
-        )
-
-        # Step 8 - Calculate the A* cost grid and bat call start/end points
-        costs, grid, call_begin, call_end, boundary = calculate_astar_grid_and_endpoints(
-            segment, index, segmentmask, peak, canvas, output_path=debug_path
-        )
-        top, bottom, left, right = boundary
-
-        # Skip chirp if the extracted path covers a small duration or bandwidth
-        bandwidth, duration_, significant = significant_contour_path(
-            call_begin, call_end, y_step_freq, x_step_ms
-        )
-        if not significant:
-            continue
-
-        # Step 9 - Extract optimal path from start to end using the cost grid
-        path = extract_contour_path(
-            grid, call_begin, call_end, canvas, index, output_path=debug_path
-        )
-
-        # Step 10 - Extract contour keypoints
-        path_smoothed, (knee, fc, heel), slopes = extract_contour_keypoints(
-            path, canvas, index, peak, output_path=debug_path
-        )
-
-        # Step 11 - Collect chirp metadata
-        metadata = {
-            'curve.(hz,ms)': [
-                (
-                    bands[y],
-                    (start + x) * x_step_ms,
-                )
-                for y, x in path_smoothed
-            ],
-            'start.ms': (start + left) * x_step_ms,
-            'end.ms': (start + right) * x_step_ms,
-            'duration.ms': (right - left) * x_step_ms,
-            'threshold.amp': int(round(255.0 * (segment_threshold / np.iinfo(stft_db.dtype).max))),
-            'peak f.ms': (start + peak[1]) * x_step_ms,
-            'fc.ms': (start + bands[fc[1]]) * x_step_ms,
-            'hi fc:knee.ms': (start + bands[knee[1]]) * x_step_ms,
-            'lo fc:heel.ms': (start + bands[heel[1]]) * x_step_ms,
-            'bandwidth.hz': bandwidth,
-            'hi f.hz': bands[top],
-            'lo f.hz': bands[bottom],
-            'peak f.hz': bands[peak[0]],
-            'fc.hz': bands[fc[0]],
-            'hi fc:knee.hz': bands[knee[0]],
-            'lo fc:heel.hz': bands[heel[0]],
-            'harmonic.flag': harmonic_flag,
-            'harmonic peak f.ms': (start + hamonic_peak[1]) * x_step_ms if harmonic_flag else None,
-            'harmonic peak f.hz': bands[hamonic_peak[0]] if harmonic_flag else None,
-            'echo.flag': echo_flag,
-            'echo peak f.ms': (start + echo_peak[1]) * x_step_ms if echo_flag else None,
-            'echo peak f.hz': bands[echo_peak[0]] if echo_flag else None,
+        # Extract chirp metrics and metadata
+        segments = {
+            'stft_db': [],
+            'waveplot': [],
+            'costs': [],
+            'canvas': [],
         }
-        metadata.update(slopes)
+        metas = []
+        for index, (start, stop) in tqdm.tqdm(list(enumerate(ranges))):
+            segment = stft_db[:, start:stop]
 
-        # Normalize values
-        for key, value in list(metadata.items()):
-            if value is None:
+            # Step 0.1 - Debugging setup and find peak amplitude (will return None if disabled)
+            canvas = create_contour_debug_canvas(segment, index, output_path=debug_path)
+
+            # Step 0.2 - Find the location(s) of peak amplitude
+            max_locations = find_max_locations(segment)
+
+            # Step 1 - Scale with PDF
+            segment, peak_db, peak_db_std = scale_pdf_contour(segment, index, output_path=debug_path)
+            if None in {peak_db, peak_db_std}:
                 continue
-            if key.endswith('.ms'):
-                metadata[key] = round(float(value), 3)
-            if key.endswith('.hz'):
-                metadata[key] = int(round(value))
-            if key.endswith('.flag'):
-                metadata[key] = bool(value)
-            if key.endswith('.y_px/x_px'):
-                key_ = key.replace('.y_px/x_px', '.khz/ms')
-                metadata[key_] = round(float(value * ((y_step_freq / 1000.0) / x_step_ms)), 3)
-                metadata.pop(key)
-            if key.endswith('.(hz,ms)'):
-                metadata[key] = [
+
+            # Step 2 - Apply median filtering to contour
+            segment = filter_contour(segment, index, output_path=debug_path)
+
+            # Step 3 - Apply Morphology Open to contour
+            segment = morph_open_contour(segment, index, output_path=debug_path)
+
+            # Step 4 - Normalize contour
+            segment = normalize_contour(segment, index, output_path=debug_path)
+
+            # # Step 5 (OLD) - Threshold contour
+            # segment, med_db, std_db, peak_db = threshold_contour(segment, index, output_path=debug_path)
+
+            # Step 5 - Find primary contour that contains max amplitude
+            # (To use a local instead of global threshold, remove the threshold argument here)
+            segmentmask, peak, segment_threshold = find_contour_and_peak(
+                segment,
+                index,
+                max_locations,
+                peak_db,
+                peak_db_std,
+                output_path=debug_path,
+                threshold=global_threshold,
+            )
+
+            if peak is None:
+                continue
+
+            # Step 6 - Create final segmentmask
+            segmentmask = refine_segmentmask(segmentmask, index, output_path=debug_path)
+
+            # # Step 6 (OLD) - Find the contour with the (most) max amplitude location(s)
+            # valid, segmentmask, peak = find_contour_connected_components(segment, index, max_locations, output_path=debug_path)
+            # # Step 6 (OLD) - Refine contour by removing any harmonic or echo
+            # segmentmask, peak = refine_contour(segment_, index, max_locations, segmentmask, peak, output_path=debug_path)
+
+            # Step 7 - Calculate the first order harmonic and echo region
+            harmonic = find_harmonic(segmentmask, index, freq_offset, output_path=debug_path)
+            echo = find_echo(segmentmask, index, output_path=debug_path)
+
+            original = stft_db[:, start:stop]
+            harmonic_flag, hamonic_peak, echo_flag, echo_peak = calculate_harmonic_and_echo_flags(
+                original, index, segmentmask, harmonic, echo, canvas, output_path=debug_path
+            )
+
+            # Remove harmonic and echo from segmentation
+            segment = remove_harmonic_and_echo(
+                segment, index, harmonic, echo, global_threshold, output_path=debug_path
+            )
+
+            # Step 8 - Calculate the A* cost grid and bat call start/end points
+            costs, grid, call_begin, call_end, boundary = calculate_astar_grid_and_endpoints(
+                segment, index, segmentmask, peak, canvas, output_path=debug_path
+            )
+            top, bottom, left, right = boundary
+
+            # Skip chirp if the extracted path covers a small duration or bandwidth
+            bandwidth, duration_, significant = significant_contour_path(
+                call_begin, call_end, y_step_freq, x_step_ms
+            )
+            if not significant:
+                continue
+
+            # Step 9 - Extract optimal path from start to end using the cost grid
+            path = extract_contour_path(
+                grid, call_begin, call_end, canvas, index, output_path=debug_path
+            )
+
+            # Step 10 - Extract contour keypoints
+            path_smoothed, (knee, fc, heel), slopes = extract_contour_keypoints(
+                path, canvas, index, peak, output_path=debug_path
+            )
+
+            # Step 11 - Collect chirp metadata
+            metadata = {
+                'curve.(hz,ms)': [
                     (
-                        int(round(val1)),
-                        round(float(val2), 3),
+                        bands[y],
+                        (start + x) * x_step_ms,
                     )
-                    for val1, val2 in value
-                ]
+                    for y, x in path_smoothed
+                ],
+                'start.ms': (start + left) * x_step_ms,
+                'end.ms': (start + right) * x_step_ms,
+                'duration.ms': (right - left) * x_step_ms,
+                'threshold.amp': int(round(255.0 * (segment_threshold / np.iinfo(stft_db.dtype).max))),
+                'peak f.ms': (start + peak[1]) * x_step_ms,
+                'fc.ms': (start + bands[fc[1]]) * x_step_ms,
+                'hi fc:knee.ms': (start + bands[knee[1]]) * x_step_ms,
+                'lo fc:heel.ms': (start + bands[heel[1]]) * x_step_ms,
+                'bandwidth.hz': bandwidth,
+                'hi f.hz': bands[top],
+                'lo f.hz': bands[bottom],
+                'peak f.hz': bands[peak[0]],
+                'fc.hz': bands[fc[0]],
+                'hi fc:knee.hz': bands[knee[0]],
+                'lo fc:heel.hz': bands[heel[0]],
+                'harmonic.flag': harmonic_flag,
+                'harmonic peak f.ms': (start + hamonic_peak[1]) * x_step_ms if harmonic_flag else None,
+                'harmonic peak f.hz': bands[hamonic_peak[0]] if harmonic_flag else None,
+                'echo.flag': echo_flag,
+                'echo peak f.ms': (start + echo_peak[1]) * x_step_ms if echo_flag else None,
+                'echo peak f.hz': bands[echo_peak[0]] if echo_flag else None,
+            }
+            metadata.update(slopes)
 
-        metas.append(metadata)
+            # Normalize values
+            for key, value in list(metadata.items()):
+                if value is None:
+                    continue
+                if key.endswith('.ms'):
+                    metadata[key] = round(float(value), 3)
+                if key.endswith('.hz'):
+                    metadata[key] = int(round(value))
+                if key.endswith('.flag'):
+                    metadata[key] = bool(value)
+                if key.endswith('.y_px/x_px'):
+                    key_ = key.replace('.y_px/x_px', '.khz/ms')
+                    metadata[key_] = round(float(value * ((y_step_freq / 1000.0) / x_step_ms)), 3)
+                    metadata.pop(key)
+                if key.endswith('.(hz,ms)'):
+                    metadata[key] = [
+                        (
+                            int(round(val1)),
+                            round(float(val2), 3),
+                        )
+                        for val1, val2 in value
+                    ]
 
-        # Trim segment around the bat call with a small buffer
-        buffer_ms = 1.0
-        buffer_pix = int(round(buffer_ms / x_step_ms))
-        trim_begin = max(0, min(segment.shape[1], call_begin[1] - buffer_pix))
-        trim_end = max(0, min(segment.shape[1], call_end[1] + buffer_pix))
+            metas.append(metadata)
 
-        segments['stft_db'].append(stft_db[:, start + trim_begin : start + trim_end])
-        segments['waveplot'].append(waveplot[:, start + trim_begin : start + trim_end])
-        segments['costs'].append(costs[:, trim_begin:trim_end])
-        if debug_path:
-            segments['canvas'].append(canvas[:, trim_begin:trim_end])
+            # Trim segment around the bat call with a small buffer
+            buffer_ms = 1.0
+            buffer_pix = int(round(buffer_ms / x_step_ms))
+            trim_begin = max(0, min(segment.shape[1], call_begin[1] - buffer_pix))
+            trim_end = max(0, min(segment.shape[1], call_end[1] + buffer_pix))
+
+            segments['stft_db'].append(stft_db[:, start + trim_begin : start + trim_end])
+            segments['waveplot'].append(waveplot[:, start + trim_begin : start + trim_end])
+            segments['costs'].append(costs[:, trim_begin:trim_end])
+            if debug_path:
+                segments['canvas'].append(canvas[:, trim_begin:trim_end])
 
     # Concatenate extracted, trimmed segments and other matrices
     for key in list(segments.keys()):

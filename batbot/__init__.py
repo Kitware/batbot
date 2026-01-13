@@ -63,6 +63,7 @@ def pipeline(
     config=None,
     # classifier_thresh=classifier.CONFIGS[None]['thresh'],
     clean=True,
+    fast_mode=False,
 ):
     """
     Run the ML pipeline on a given WAV filepath and return the classification results
@@ -93,7 +94,7 @@ def pipeline(
         tuple ( float, list ( dict ) ): classifier score, list of time windows
     """
     # Generate spectrogram
-    output_paths, metadata_path, metadata = spectrogram.compute(filepath)
+    output_paths, metadata_path, metadata = spectrogram.compute(filepath, fast_mode=fast_mode)
 
     return output_paths, metadata_path
 
@@ -162,6 +163,10 @@ def example():
 
     log.debug(f'Running pipeline on WAV: {wav_filepath}')
 
-    results = pipeline(wav_filepath)
+    import time
+    start_time = time.time()
+    results = pipeline(wav_filepath, fast_mode=False)
+    stop_time = time.time()
+    print('Example pipeline completed in {} seconds.'.format(stop_time - start_time))
 
     log.debug(results)
