@@ -18,3 +18,4 @@ docs/_build/
 
 example*.jpg
 example*.json
+.vscode/*
