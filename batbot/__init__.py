@@ -164,6 +164,7 @@ def example():
     log.debug(f'Running pipeline on WAV: {wav_filepath}')
 
     import time
+
     start_time = time.time()
     results = pipeline(wav_filepath, fast_mode=False)
     stop_time = time.time()
