@@ -1,13 +1,18 @@
 name: Wheel
 
 on:
+  pull_request:
+    branches:
+      - main
   push:
     branches:
       - main
-      - jrp/ci-cd-fixes
+    tags:
+      - v*
+  schedule:
+    - cron: '0 16 * * *' # Every day at 16:00 UTC (~09:00 PT)
 
 jobs:
-
   build_wheels:
     name: Build on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
