@@ -2,10 +2,11 @@ black
 codecov
 coverage
 flake8
-imageio
+# gradio
 ipython
-line_profiler
-onnx
+isort
+# onnx
+# onnxruntime
 pre-commit
 pytest
 pytest-benchmark[histogram]
@@ -15,7 +16,12 @@ pytest-profiling
 pytest-random-order
 pytest-sugar
 pytest-xdist
+pyupgrade
 pyyaml
+rstcheck
+rstcheck[sphinx]
 Sphinx>=5,<6
 sphinx_rtd_theme
+# torch
+# torchvision
 xdoctest

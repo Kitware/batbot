@@ -1,19 +1,16 @@
 click
-codecov
-coverage
 cryptography
 cython
-gradio
-imgaug
 librosa
+line_profiler
 matplotlib
 numpy
-onnxruntime
 opencv-python-headless
 Pillow
 pooch
+pyastar2d @ git+https://github.com/bluemellophone/batbot-pyastar2d@master
 rich
+scikit-image
+shapely
 sphinx-click
-torch
-torchvision
 tqdm

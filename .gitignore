@@ -2,6 +2,8 @@
 output.*.jpg
 *.log*
 
+build/
+dist/
 *.egg-info/
 
 .coverage*
@@ -16,3 +18,4 @@ docs/_build/
 
 example*.jpg
 example*.json
+.vscode/*

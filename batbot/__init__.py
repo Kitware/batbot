@@ -94,7 +94,8 @@ def pipeline(
     """
     # Generate spectrogram
     output_paths, metadata_path, metadata = spectrogram.compute(filepath)
-    raise NotImplementedError
+
+    return output_paths, metadata_path
 
 
 def batch(

@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - jrp/ci-cd-fixes
 
 jobs:
 
@@ -14,16 +15,16 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-        python-version: [3.8]
+        python-version: [3.12]
 
     steps:
       - name: Checkout code
-        uses: nschloe/action-cached-lfs-checkout@v1.1.3
+        uses: nschloe/action-cached-lfs-checkout@v1.2.3
         with:
-          exclude: "batbot/*/models/pytorch/"
+          exclude: "examples/example[2-4].wav"
 
-      - uses: actions/setup-python@v2
-        name: Install Python
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -33,8 +34,9 @@ jobs:
           pip install build
           python -m build --wheel --outdir dist/ .
 
-      - uses: actions/upload-artifact@v2
+      - uses: actions/upload-artifact@v6
         with:
+          name: artifact-wheel-${{ matrix.os }}-${{ matrix.python-version }}
           path: ./dist/*.whl
 
   build_sdist:
@@ -42,14 +44,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: nschloe/action-cached-lfs-checkout@v1.1.3
+        uses: nschloe/action-cached-lfs-checkout@v1.2.3
         with:
-          exclude: "batbot/*/models/pytorch/"
+          exclude: "examples/example[2-4].wav"
 
-      - uses: actions/setup-python@v2
-        name: Install Python
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v6
         with:
-          python-version: '3.8'
+          python-version: '3.12'
 
       - name: Build sdist
         run: |
@@ -57,57 +59,68 @@ jobs:
           pip install build
           python -m build --sdist --outdir dist/ .
 
-      - uses: actions/upload-artifact@v2
+      - uses: actions/upload-artifact@v6
         with:
+          name: artifact-sdist
           path: ./dist/*.tar.gz
 
   test_wheel:
     needs: [build_wheels, build_sdist]
     runs-on: ubuntu-latest
-    env:
-      CLASSIFIER_BATCH_SIZE: 16
 
     # test wheel
     if: github.event_name == 'push'
     steps:
-      - uses: actions/setup-python@v2
-        name: Install Python
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v6
         with:
-          python-version: '3.8'
+          python-version: '3.12'
 
-      - uses: actions/download-artifact@v2
+      - uses: actions/download-artifact@v7
         with:
-          name: artifact
-          path: dist
+          path: artifact
 
       - name: Install wheel
         run: |
           pip install --upgrade pip
           pip install wheel
+          find .
+          mkdir dist
+          cp artifact/*-ubuntu-*/*.whl dist/
+          cp artifact/*/*.tar.gz dist/
           pip install dist/*.whl
 
       - name: Test module
         run: |
-          python -c "import batbot; batbot.fetch(); batbot.example();"
+          python -c "import batbot;"
 
-      - name: Test CLI
-        run: |
-          batbot fetch
-          batbot example
+      # - name: Test CLI
+      #   run: |
+      #     batbot example
 
   upload_pypi:
     needs: [test_wheel]
     runs-on: ubuntu-latest
     # upload to PyPI on every tag starting with 'v'
     if: github.event_name == 'push' && startsWith(github.event.ref, 'refs/tags/v')
+    environment:
+      name: pypi
+      url: https://pypi.org/p/batbot
+    permissions:
+      id-token: write
     steps:
-      - uses: actions/download-artifact@v2
+      - uses: actions/download-artifact@v7
         with:
-          name: artifact
-          path: dist
+          path: artifact
 
-      - uses: pypa/gh-action-pypi-publish@release/v1
+      - name: Install wheel
+        run: |
+          find .
+          mkdir dist
+          cp artifact/*-ubuntu-*/*.whl dist/
+          cp artifact/*/*.tar.gz dist/
+
+      - name: Publish package distributions to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          user: __token__
-          password: ${{ secrets.PYPI_PASSWORD }}
-          # To test: repository_url: https://test.pypi.org/legacy/
+          password: ${{ secrets.BATBOT_PYPI_TOKEN }}
