@@ -43,6 +43,7 @@ def compute(*args, **kwargs):
 
 
 def get_islands(data):
+    # Find all islands of contiguous same elements with island length 2 or more
     mask = np.r_[np.diff(data) == 0, False]
     mask_ = np.concatenate(([False], mask, [False]))
     idx_ = np.flatnonzero(mask_[1:] != mask_[:-1])
@@ -414,7 +415,7 @@ def filter_candidates_to_ranges(
     fast_mode=False,
 ):
     # Filter the candidates based on their distribution skewness
-    stride_ = 2 if not fast_mode else 16
+    stride_ = 2 if not fast_mode else 4
     buffer = int(round(window / stride_ / 2))
 
     reject_idxs = []
@@ -440,6 +441,9 @@ def filter_candidates_to_ranges(
         islands = get_islands(skews)
         area = float(max([val.sum() for val in islands]))
         area /= len(skews)
+        if area == 0.0 and sum(skews) >= 1:
+            # handle edge case with single-element islands
+            area = 1.0 / len(skews)
 
         if area >= area_percent:
             ranges.append((start, stop))
@@ -1395,11 +1399,31 @@ def compute_wrapper(
         global_threshold = 0.0
 
     # Get a distribution of the max candidate locations
-    strides_per_window = 3 if not fast_mode else 6
+    # Normal mode uses a relatively large window and little overlap
+    # Fast mode uses a relatively small window and lots of overlap, since it skips range tightening step
+    strides_per_window = 3 if not fast_mode else 16
+    window_size_ms = 12 if not fast_mode else 3
+    threshold_stddev = 3.0 if not fast_mode else 4.5
     window, stride = calculate_window_and_stride(
-        stft_db, duration, strides_per_window=strides_per_window, time_vec=time_vec
+        stft_db,
+        duration,
+        window_size_ms=window_size_ms,
+        strides_per_window=strides_per_window,
+        time_vec=time_vec,
     )
-    candidates, candidate_max_dbs = create_coarse_candidates(stft_db, window, stride)
+    candidates, candidate_max_dbs = create_coarse_candidates(
+        stft_db, window, stride, threshold_stddev=threshold_stddev
+    )
+
+    if fast_mode:
+        # combine candidates for efficiency and remove very short candidates (likely noise)
+        tmp_ranges = [(x, y) for _, x, y in candidates]
+        tmp_ranges = merge_ranges(tmp_ranges, stft_db.shape[1])
+        candidate_lengths = np.array([y - x for x, y in tmp_ranges])
+        length_thresh = window * 1.5
+        idx_remove = candidate_lengths < length_thresh
+        candidates = [(ii, x, y) for ii, (x, y) in enumerate(tmp_ranges) if not idx_remove[ii]]
+        candidate_max_dbs = []
 
     # Filter all candidates to the ranges that have a substantial right-side skew
     ranges, reject_idxs = filter_candidates_to_ranges(
@@ -1421,11 +1445,13 @@ def compute_wrapper(
 
     if fast_mode:
         # Apply reduced processing without segment refinement or metadata calculation
+
         segments = {'stft_db': []}
         # Remove a fraction of the window length when not doing call segmentation
-        crop_length = max(0, int(round(0.75 * window - 1)))
+        crop_length_l = max(0, int(round(0.15 * window - 1)))
+        crop_length_r = max(0, int(round(0.45 * window - 1)))
         for start, stop in ranges:
-            segments['stft_db'].append(stft_db[:, start + crop_length : stop - crop_length])
+            segments['stft_db'].append(stft_db[:, start + crop_length_l : stop - crop_length_r])
         metas = {}
 
     else:
