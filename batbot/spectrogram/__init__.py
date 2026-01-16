@@ -38,7 +38,8 @@ FREQ_MAX = 120e3
 
 def compute(*args, **kwargs):
     retval = compute_wrapper(*args, **kwargs)
-    lp.print_stats()
+    if not kwargs.get('fast_mode', True):
+        lp.print_stats()
     return retval
 
 
@@ -420,7 +421,7 @@ def filter_candidates_to_ranges(
 
     reject_idxs = []
     ranges = []
-    for index, (idx, start, stop) in tqdm.tqdm(list(enumerate(candidates))):
+    for index, (idx, start, stop) in tqdm.tqdm(list(enumerate(candidates)), disable=fast_mode):
         # Extract the candidate window of the STFT
         candidate = stft_db[:, start:stop]
 
@@ -1695,9 +1696,12 @@ def compute_wrapper(
 
     output_paths = []
     compressed_paths = []
-    datas = [
-        (output_paths, 'jpg', stft_db),
-    ]
+    if not fast_mode:
+        datas = [
+            (output_paths, 'jpg', stft_db),
+        ]
+    else:
+        datas = []
     if 'stft_db' in segments:
         datas += [
             (compressed_paths, 'compressed.jpg', segments['stft_db']),
