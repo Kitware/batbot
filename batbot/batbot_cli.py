@@ -2,13 +2,17 @@
 """
 CLI for BatBot
 """
+from glob import glob
 import json
 from os.path import exists
+import warnings
 
 import click
 
 import batbot
 from batbot import log
+
+from tqdm import tqdm
 
 
 def pipeline_filepath_validator(ctx, param, value):
@@ -97,6 +101,74 @@ def pipeline(
             json.dump(data, outfile)
     else:
         print(data)
+
+@click.command('preprocess')
+@click.argument(
+    'filepaths',
+    nargs=-1,
+    type=str,
+)
+# @click.option(
+#     '--output-dir',
+#     help='Processed file output directory. Defaults to current working directory.',
+#     default='.',
+#     type=str,
+# )
+@click.option(
+    '--metadata', '-m',
+    help='Use a much slower version of the pipeline which increases spectogram compression quality and outputs additional bat call metadata.',
+    is_flag=True,
+)
+@click.option(
+    '--output-json',
+    help='Path to output JSON (if unspecified, output file locations are printed to screen)',
+    default=None,
+    type=str,
+)
+def preprocess(filepaths, metadata, output_json):
+    """Generate compressed spectrogram images for wav files into the current working directory. 
+    Takes one or more space separated arguments of filepaths to process.
+    Filepaths can use wildcards ** for folders and/or * within filenames (if ** wildcard is used, 
+    will recursively search through all subfolders).
+    """
+    all_filepaths = []
+    for file in filepaths:
+        all_filepaths.extend(glob(file, recursive=True))
+    # remove any repeats
+    all_filepaths = sorted(list(set(all_filepaths)))
+
+    if len(all_filepaths) == 0:
+        print('Found no files given filepaths input {}'.format(filepaths))
+        return
+
+    print('Running preprocessing on {} located files'.format(len(all_filepaths)))
+    print('\tFast processing mode {}'.format('OFF' if metadata else 'ON'))
+    print('\tName of first file to process: {}'.format(all_filepaths[0]))
+    if len(all_filepaths) > 2:
+        print('\tName of last file to process: {}'.format(all_filepaths[-1]))
+    
+    data = {'output_path':[], 'metadata_paths':[]}
+    for file in tqdm(all_filepaths, desc='Preprocessing files', total=len(all_filepaths)):
+        try:
+            output_paths, metadata_path = batbot.pipeline(file, fast_mode=(not metadata)) #, extra_arg=True)
+            data['output_path'].extend(output_paths)
+            if metadata:
+                data['metadata_path'].extend(metadata_path)
+        except:
+            warnings.warn('WARNING: Pipeline failed for file {}'.format(file))
+
+    if output_json is None:
+        print('Processed output paths:')
+        print(data['output_path'])
+        if metadata:
+            print('Processed metadata paths:')
+            print(data['metadata_path'])
+    else:
+        with open(output_json, 'w') as outfile:
+            json.dump(data, outfile)
+    print('Complete.')
+
+    return data
 
 
 @click.command('batch')
@@ -189,6 +261,7 @@ def cli():
 
 cli.add_command(fetch)
 cli.add_command(pipeline)
+cli.add_command(preprocess)
 cli.add_command(batch)
 cli.add_command(example)
 
