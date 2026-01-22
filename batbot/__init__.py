@@ -63,7 +63,7 @@ def pipeline(
     config=None,
     # classifier_thresh=classifier.CONFIGS[None]['thresh'],
     clean=True,
-    output_folder=None,
+    output_folder=".",
 ):
     """
     Run the ML pipeline on a given WAV filepath and return the classification results

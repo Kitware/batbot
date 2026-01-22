@@ -1330,7 +1330,7 @@ def compute_wrapper(
     chunksize = int(50e3)
 
     # create output folder if it doesn't exist
-    if not exists(output_folder):
+    if not os.path.exists(output_folder):
         os.makedirs(output_folder)
         assert exists(output_folder)
 
