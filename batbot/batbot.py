@@ -49,7 +49,7 @@ def fetch(config):
     '--output',
     'output_path',
     help='Path to output folder for the results',
-    default=".",
+    default='.',
     type=str,
 )
 # @click.option(
