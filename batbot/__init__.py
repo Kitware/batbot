@@ -63,6 +63,7 @@ def pipeline(
     config=None,
     # classifier_thresh=classifier.CONFIGS[None]['thresh'],
     clean=True,
+    output_folder=None,
 ):
     """
     Run the ML pipeline on a given WAV filepath and return the classification results
@@ -93,7 +94,9 @@ def pipeline(
         tuple ( float, list ( dict ) ): classifier score, list of time windows
     """
     # Generate spectrogram
-    output_paths, metadata_path, metadata = spectrogram.compute(filepath)
+    output_paths, metadata_path, metadata = spectrogram.compute(
+        filepath, output_folder=output_folder
+    )
 
     return output_paths, metadata_path
 
