@@ -1668,12 +1668,10 @@ def compute_wrapper(
         'segments': metas,
     }
     if 'stft_db' in segments:
-        metadata['size']['compressed'] = (
-            {
-                'width.px': segments['stft_db'].shape[1],
-                'height.px': segments['stft_db'].shape[0],
-            },
-        )
+        metadata['size']['compressed'] = {
+            'width.px': segments['stft_db'].shape[1],
+            'height.px': segments['stft_db'].shape[0],
+        }
 
     metadata_path = join(output_folder, f'{base}.metadata.json')
     with open(metadata_path, 'w') as metafile:
