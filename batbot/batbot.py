@@ -47,8 +47,9 @@ def fetch(config):
 )
 @click.option(
     '--output',
-    help='Path to output JSON (if unspecified, results are printed to screen)',
-    default=None,
+    'output_path',
+    help='Path to output folder for the results',
+    default='.',
     type=str,
 )
 # @click.option(
@@ -60,7 +61,7 @@ def fetch(config):
 def pipeline(
     filepath,
     config,
-    output,
+    output_path,
     # classifier_thresh,
 ):
     """
@@ -79,24 +80,12 @@ def pipeline(
         config = config.strip().lower()
     # classifier_thresh /= 100.0
 
-    score = batbot.pipeline(
+    batbot.pipeline(
         filepath,
         config=config,
         # classifier_thresh=classifier_thresh,
+        output_folder=output_path,
     )
-
-    data = {
-        filepath: {
-            'classifier': score,
-        }
-    }
-
-    log.debug('Outputting results...')
-    if output:
-        with open(output, 'w') as outfile:
-            json.dump(data, outfile)
-    else:
-        print(data)
 
 
 @click.command('batch')

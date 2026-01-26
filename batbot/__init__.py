@@ -63,6 +63,7 @@ def pipeline(
     config=None,
     # classifier_thresh=classifier.CONFIGS[None]['thresh'],
     clean=True,
+    output_folder='.',
 ):
     """
     Run the ML pipeline on a given WAV filepath and return the classification results
@@ -93,7 +94,9 @@ def pipeline(
         tuple ( float, list ( dict ) ): classifier score, list of time windows
     """
     # Generate spectrogram
-    output_paths, metadata_path, metadata = spectrogram.compute(filepath)
+    output_paths, metadata_path, metadata = spectrogram.compute(
+        filepath, output_folder=output_folder
+    )
 
     return output_paths, metadata_path
 
@@ -161,7 +164,7 @@ def example():
         assert exists(wav_filepath)
 
     log.debug(f'Running pipeline on WAV: {wav_filepath}')
-
-    results = pipeline(wav_filepath)
+    output = './output'
+    results = pipeline(wav_filepath, output_folder=output)
 
     log.debug(results)

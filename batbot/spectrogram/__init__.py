@@ -1329,6 +1329,11 @@ def compute_wrapper(
 
     chunksize = int(50e3)
 
+    # create output folder if it doesn't exist
+    if not os.path.exists(output_folder):
+        os.makedirs(output_folder)
+        assert exists(output_folder)
+
     debug_path = get_debug_path(output_folder, wav_filepath, enabled=debug)
 
     # Load the spectrogram from a WAV file on disk
