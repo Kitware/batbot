@@ -164,7 +164,7 @@ def example():
         assert exists(wav_filepath)
 
     log.debug(f'Running pipeline on WAV: {wav_filepath}')
-
-    results = pipeline(wav_filepath)
+    output = './output'
+    results = pipeline(wav_filepath, output_folder=output)
 
     log.debug(results)
