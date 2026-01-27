@@ -13,8 +13,7 @@ from batbot import log
 
 def pipeline_filepath_validator(ctx, param, value):
     if not exists(value):
-        log.error(f'Input filepath does not exist: {value}')
-        ctx.exit()
+        raise click.BadParameter(f'Input filepath does not exist: {value}')
     return value
 
 
