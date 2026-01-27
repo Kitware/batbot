@@ -1490,9 +1490,12 @@ def compute_wrapper(
                 )
                 for y, x in path_smoothed
             ],
-            'start.ms': (start + left) * x_step_ms,
-            'end.ms': (start + right) * x_step_ms,
-            'duration.ms': (right - left) * x_step_ms,
+            'start.ms': start * x_step_ms,
+            'end.ms': stop * x_step_ms,
+            'duration.ms': (stop - start) * x_step_ms,
+            'contour.start.ms': (start + left) * x_step_ms,
+            'contour.end.ms': (start + right) * x_step_ms,
+            'countour.duration.ms': (right - left) * x_step_ms,
             'threshold.amp': int(round(255.0 * (segment_threshold / np.iinfo(stft_db.dtype).max))),
             'peak f.ms': (start + peak[1]) * x_step_ms,
             'fc.ms': (start + bands[fc[1]]) * x_step_ms,
