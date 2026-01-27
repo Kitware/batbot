@@ -38,4 +38,4 @@ RUN /venv/bin/pip install --no-cache-dir -r requirements/runtime.txt \
  #       /venv/bin/pip install --no-cache-dir onnxruntime-gpu \
  #       ; fi
 
-CMD [".", "/venv/bin/activate", "&&", "exec", "python", "app.py"]
+CMD ["/venv/bin/python", "app.py"]
