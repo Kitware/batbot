@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pyastar2d
 import scipy.signal  # Ensure this is at the top with other imports
+import scipy.stats
 import tqdm
 from line_profiler import LineProfiler
 from scipy import ndimage
