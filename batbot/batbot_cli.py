@@ -4,16 +4,21 @@ CLI for BatBot
 """
 from glob import glob
 import json
-from os.path import exists
+from os.path import exists, commonpath, join, relpath, split, splitext, basename, isdir, isfile
+from os import makedirs, getcwd
 import warnings
 
 import click
+import numpy as np
 
 import batbot
 from batbot import log
 
 from tqdm import tqdm
 
+
+import warnings
+warnings.filterwarnings("error")
 
 def pipeline_filepath_validator(ctx, param, value):
     if not exists(value):
@@ -108,16 +113,29 @@ def pipeline(
     nargs=-1,
     type=str,
 )
-# @click.option(
-#     '--output-dir',
-#     help='Processed file output directory. Defaults to current working directory.',
-#     default='.',
-#     type=str,
-# )
 @click.option(
-    '--metadata', '-m',
-    help='Use a much slower version of the pipeline which increases spectogram compression quality and outputs additional bat call metadata.',
+    '--output-dir', '-o',
+    help='Processed file root output directory. Outputs will attempt to mirror input file directory structure if given multiple inputs (unless --no-file-structure flag is given). Defaults to current working directory.',
+    nargs=1,
+    default='.',
+    type=str,
+)
+@click.option(
+    '--process-metadata', '-m',
+    help='Use a slower version of the pipeline which increases spectogram compression quality and also outputs bat call metadata.',
     is_flag=True,
+)
+@click.option(
+    '--force-overwrite', '-f',
+    help='Force overwriting of compressed spectrogram and other output files.',
+    is_flag=True,
+)
+@click.option(
+    '--num-workers', '-n',
+    help='Number of parallel workers to use. Set to zero for serial computation only.',
+    nargs=1,
+    default=0,
+    type=int,
 )
 @click.option(
     '--output-json',
@@ -125,42 +143,146 @@ def pipeline(
     default=None,
     type=str,
 )
-def preprocess(filepaths, metadata, output_json):
+@click.option(
+    '--no-file-structure',
+    help='(Not recommended) Turn off input file directory structure mirroring. All outputs will be written directly into the provided output dir. WARNING: If multiple input files have the same filename, outputs will overwrite!',
+    is_flag=True,
+)
+def preprocess(filepaths, output_dir, process_metadata, force_overwrite, num_workers, output_json, no_file_structure):
     """Generate compressed spectrogram images for wav files into the current working directory. 
-    Takes one or more space separated arguments of filepaths to process.
-    Filepaths can use wildcards ** for folders and/or * within filenames (if ** wildcard is used, 
-    will recursively search through all subfolders).
+    Takes one or more space separated arguments of filepaths to process. If given a directory name,
+    will recursively search through the directory and all subfolders to find all contained *.wav files.
+    Alternatively, the argument can be given as a string using wildcards ** for folders and/or *
+    (if ** wildcard is used, will recursively search through all subfolders).
+    Examples:
+        batbot preprocess ../data -o ./tmp
+        batbot preprocess "../data/**/*.wav"
+        batbot preprocess ../data -o ./tmp -n 32
+        batbot preprocess ../data -o ./tmp -n 32 -fm
     """
-    all_filepaths = []
-    for file in filepaths:
-        all_filepaths.extend(glob(file, recursive=True))
+    in_filepaths = []
+    for input in filepaths:
+        if isdir(input):
+            in_filepaths.extend(glob(join(input,'**/*.wav'), recursive=True))
+        elif isfile(input):
+            in_filepaths.append(input)
+        else:
+            in_filepaths.extend(glob(input, recursive=True))
     # remove any repeats
-    all_filepaths = sorted(list(set(all_filepaths)))
+    in_filepaths = sorted(list(set(in_filepaths)))
 
-    if len(all_filepaths) == 0:
+    if len(in_filepaths) == 0:
         print('Found no files given filepaths input {}'.format(filepaths))
         return
 
-    print('Running preprocessing on {} located files'.format(len(all_filepaths)))
-    print('\tFast processing mode {}'.format('OFF' if metadata else 'ON'))
-    print('\tName of first file to process: {}'.format(all_filepaths[0]))
-    if len(all_filepaths) > 2:
-        print('\tName of last file to process: {}'.format(all_filepaths[-1]))
+    # set up output paths for each input path
+    root_inpath = commonpath(in_filepaths)
+    root_outpath = '.' if output_dir is None else output_dir
+    makedirs(root_outpath, exist_ok=True)
+    if no_file_structure:
+        out_filepath_stems = [join(root_outpath, splitext(x)[0]) for x in in_filepaths]
+    else:
+        out_filepath_stems = [splitext(join(root_outpath, relpath(x, root_inpath)))[0] for x in in_filepaths]
+        new_dirs = [split(x)[0] for x in out_filepath_stems]
+        for new_dir in set(new_dirs):
+            makedirs(new_dir, exist_ok=True)
+
+    # look for existing output files and remove from the set
+    in_filepaths = np.array(in_filepaths)
+    out_filepath_stems = np.array(out_filepath_stems)
+    if not force_overwrite:
+        idx_remove = np.full((len(in_filepaths),), False)
+        for ii, out_file_stem in enumerate(out_filepath_stems):
+            test_file = '{}.*'.format(out_file_stem)
+            test_glob = glob(test_file)
+            if len(test_glob) > 0:
+                idx_remove[ii] = True
+        in_filepaths = in_filepaths[np.invert(idx_remove)]
+        out_filepath_stems = out_filepath_stems[np.invert(idx_remove)]
+        n_skipped = sum(idx_remove)
+        if len(in_filepaths) == 0:
+            print('Found no unprocessed files given filepaths input {} and output directory "{}" after skipping {} files'.format(filepaths, root_outpath, n_skipped))
+            print('If desired, use --force-overwrite flag to overwrite existing processed data')
+            return
+
+    print('Running preprocessing on {} located unprocessed files'.format(len(in_filepaths)))
+    print('\tFast processing mode {}'.format('OFF' if process_metadata else 'ON'))
+    if process_metadata:
+        print('\t\tFull bat call metadata will be produced')
+    print('\tForce output overwrite {}'.format('ON' if force_overwrite else 'OFF'))
+    if not force_overwrite:
+        print('\t\tSkipped {} files with already preprocessed outputs'.format(n_skipped))
+    print('\tNum parallel workers: {}'.format(num_workers))
+    if no_file_structure:
+        print('\tFlattening output file structure')
+    print('\tCurrent working dir: {}'.format(getcwd()))
+    print('\tOutput root dir: {}'.format(output_dir))
+    print('\tFirst input file -> output files: {} -> {}.*'.format(in_filepaths[0], out_filepath_stems[0]))
+    if len(in_filepaths) > 2:
+        print('\tLast input file -> output files: {} -> {}.*'.format(in_filepaths[-1], out_filepath_stems[-1]))
     
-    data = {'output_path':[], 'metadata_paths':[]}
-    for file in tqdm(all_filepaths, desc='Preprocessing files', total=len(all_filepaths)):
-        try:
-            output_paths, metadata_path = batbot.pipeline(file, fast_mode=(not metadata)) #, extra_arg=True)
+    # Begin execution loop.
+    data = {'output_path':[], 'compressed_path':[], 'metadata_path':[]}
+    if num_workers is None or num_workers == 0:
+        zipped = np.stack((in_filepaths, out_filepath_stems), axis=-1)
+        np.random.shuffle(zipped)
+        assert all([x in zipped[:,0] and y in zipped[:,1] for x, y in zip(in_filepaths, out_filepath_stems)])
+        in_filepaths, out_filepath_stems = zipped.T
+        assert all([basename(y) in basename(x) for x, y in zip(in_filepaths, out_filepath_stems)])
+
+        # Serial execution.
+        for file, out_stem in tqdm(zip(in_filepaths, out_filepath_stems), desc='Preprocessing files', total=len(in_filepaths)): 
+            # try:
+            output_paths, compressed_paths, metadata_path = batbot.pipeline(
+                file, 
+                out_file_stem=out_stem,
+                fast_mode=(not process_metadata),
+                force_overwrite=force_overwrite,
+                quiet=True,
+            )
             data['output_path'].extend(output_paths)
-            if metadata:
-                data['metadata_path'].extend(metadata_path)
-        except:
-            warnings.warn('WARNING: Pipeline failed for file {}'.format(file))
+            data['compressed_path'].extend(compressed_paths)
+            if process_metadata:
+                data['metadata_path'].append(metadata_path)
+            # except:
+            #     warnings.warn('WARNING: Pipeline failed for file {}'.format(file))
+                # raise
+    else:
+        # Parallel execution.
+        # shuffle input and output paths
+        zipped = np.stack((in_filepaths, out_filepath_stems), axis=-1)
+        np.random.shuffle(zipped)
+        assert all([x in zipped[:,0] and y in zipped[:,1] for x, y in zip(in_filepaths, out_filepath_stems)])
+        in_filepaths, out_filepath_stems = zipped.T
+        assert all([basename(y) in basename(x) for x, y in zip(in_filepaths, out_filepath_stems)])
+
+        # make num_workers chunks
+        in_file_chunks = np.array_split(in_filepaths, num_workers)
+        out_stem_chunks = np.array_split(out_filepath_stems, num_workers)
+
+        # send to parallel function
+        output_paths, compressed_paths, metadata_path = batbot.parallel_pipeline(
+            in_file_chunks=in_file_chunks,
+            out_stem_chunks=out_stem_chunks,
+            fast_mode=(not process_metadata),
+            force_overwrite=force_overwrite,
+            num_workers=num_workers,
+            threaded=False,
+            quiet=True,
+            desc='Preprocessing chunks of files with {} workers'.format(num_workers),
+        )
+        data['output_path'].extend(output_paths)
+        data['compressed_path'].extend(compressed_paths)
+        if process_metadata:
+            data['metadata_path'].append(metadata_path)
 
     if output_json is None:
-        print('Processed output paths:')
+        print('')
+        print('Full spectrogram output paths:')
         print(data['output_path'])
-        if metadata:
+        print('Compressed spectrogram output paths:')
+        print(data['compressed_path'])
+        if process_metadata:
             print('Processed metadata paths:')
             print(data['metadata_path'])
     else:
