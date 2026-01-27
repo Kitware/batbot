@@ -1656,7 +1656,8 @@ def compute_wrapper(
 
             # Update metadata with segment start and stop
             start_stop = {'segment start.ms': (start + trim_begin) * x_step_ms,
-                          'segment end.ms': (start + trim_end) * x_step_ms}
+                          'segment end.ms': (start + trim_end) * x_step_ms,
+                          'segment duration.ms': (trim_end - trim_begin) * x_step_ms}
             metadata.update(start_stop)
 
             # Normalize values
