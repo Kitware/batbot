@@ -5,7 +5,7 @@ CLI for BatBot
 from glob import glob
 import json
 from os.path import exists, commonpath, join, relpath, split, splitext, basename, isdir, isfile
-from os import makedirs, getcwd
+from os import makedirs, getcwd, remove
 import warnings
 
 import click
@@ -102,7 +102,7 @@ def pipeline(
     log.debug('Outputting results...')
     if output:
         with open(output, 'w') as outfile:
-            json.dump(data, outfile)
+            json.dump(data, outfile, indent=4)
     else:
         print(data)
 
@@ -143,30 +143,42 @@ def pipeline(
     type=str,
 )
 @click.option(
+    '--dry-run', '-d',
+    help='List out all the audio files to be loaded and all the anticipated output files. Additionally lists all "extra" files in the output directory that would be deleted if using the --cleanup flag.',
+    is_flag=True,
+)
+@click.option(
+    '--cleanup',
+    help='For the given input filepaths and --output-dir arguments, delete any extra files that would not have been created by the batbot preprocess. Acts as if --force-overwrite flag is given. WARNING: This will delete files, recommend running with the --dry-run flag first and carefully examining the output!',
+    is_flag=True,
+)
+@click.option(
     '--no-file-structure',
     help='(Not recommended) Turn off input file directory structure mirroring. All outputs will be written directly into the provided output dir. WARNING: If multiple input files have the same filename, outputs will overwrite!',
     is_flag=True,
 )
-def preprocess(filepaths, output_dir, process_metadata, force_overwrite, num_workers, output_json, no_file_structure):
+def preprocess(filepaths, output_dir, process_metadata, force_overwrite, num_workers, output_json, dry_run, cleanup, no_file_structure):
     """Generate compressed spectrogram images for wav files into the current working directory. 
     Takes one or more space separated arguments of filepaths to process. If given a directory name,
     will recursively search through the directory and all subfolders to find all contained *.wav files.
-    Alternatively, the argument can be given as a string using wildcards ** for folders and/or *
+    Alternatively, the argument can be given as a string using wildcard ** for folders and/or * in filenames
     (if ** wildcard is used, will recursively search through all subfolders).
     Examples:
         batbot preprocess ../data -o ./tmp
         batbot preprocess "../data/**/*.wav"
         batbot preprocess ../data -o ./tmp -n 32
         batbot preprocess ../data -o ./tmp -n 32 -fm
+        batbot preprocess ../data -o ./tmp -f --dry-run --output-json dry_run.json
+        batbot preprocess ../data -o ./tmp --cleanup
     """
     in_filepaths = []
-    for input in filepaths:
-        if isdir(input):
-            in_filepaths.extend(glob(join(input,'**/*.wav'), recursive=True))
-        elif isfile(input):
-            in_filepaths.append(input)
+    for file in filepaths:
+        if isdir(file):
+            in_filepaths.extend(glob(join(file,'**/*.wav'), recursive=True))
+        elif isfile(file):
+            in_filepaths.append(file)
         else:
-            in_filepaths.extend(glob(input, recursive=True))
+            in_filepaths.extend(glob(file, recursive=True))
     # remove any repeats
     in_filepaths = sorted(list(set(in_filepaths)))
 
@@ -188,6 +200,9 @@ def preprocess(filepaths, output_dir, process_metadata, force_overwrite, num_wor
 
     # look for existing output files and remove from the set
     in_filepaths = np.array(in_filepaths)
+    if dry_run or cleanup:
+        # save copy of all outputs before removing already processed data
+        out_filepath_stems_all = out_filepath_stems.copy()
     out_filepath_stems = np.array(out_filepath_stems)
     if not force_overwrite:
         idx_remove = np.full((len(in_filepaths),), False)
@@ -204,7 +219,21 @@ def preprocess(filepaths, output_dir, process_metadata, force_overwrite, num_wor
             print('If desired, use --force-overwrite flag to overwrite existing processed data')
             return
 
-    print('Running preprocessing on {} located unprocessed files'.format(len(in_filepaths)))
+    if dry_run or cleanup:
+        # Find all "extra" files that would be deleted in cleanup mode
+        all_files = set(glob(join(root_outpath, '**/*'), recursive=True))
+        for out_stem in out_filepath_stems_all:
+            out_files = glob('{}.*'.format(out_stem))
+            all_files -= set(out_files)
+        dir_files = []
+        # remove directories
+        for file in all_files:
+            if isdir(file):
+                dir_files.append(file)
+        all_files -= set(dir_files)
+        extra_files = all_files
+
+    print('Located {} total unprocessed files'.format(len(in_filepaths)))
     print('\tFast processing mode {}'.format('OFF' if process_metadata else 'ON'))
     if process_metadata:
         print('\t\tFull bat call metadata will be produced')
@@ -219,6 +248,37 @@ def preprocess(filepaths, output_dir, process_metadata, force_overwrite, num_wor
     print('\tFirst input file -> output files: {} -> {}.*'.format(in_filepaths[0], out_filepath_stems[0]))
     if len(in_filepaths) > 2:
         print('\tLast input file -> output files: {} -> {}.*'.format(in_filepaths[-1], out_filepath_stems[-1]))
+
+    if dry_run:
+        # Print out files to be processed, anticipated outputs, and files that would be deleted in cleanup mode.
+        print('\nDry run mode active - skipping all processing')
+        data = {}
+        data['input file, output file stem'] = [(str(x),'{}.*'.format(y)) for x, y in zip(in_filepaths, out_filepath_stems)]
+        data['files to be deleted in cleanup'] = list(extra_files)
+        if output_json is None:
+            import pprint
+            pprint.pp(data)
+        else:
+            with open(output_json, 'w') as outfile:
+                json.dump(data, outfile, indent=4)
+            print('Outputs written to {}'.format(output_json))
+        print('Complete.')
+        return
+    
+    if cleanup:
+        print('\nCleanup mode active - skipping all processing')
+        if len(extra_files) == 0:
+            print('No files to delete')
+        else:
+            usr_in = input('Found {} files to delete (recommend to see details by running with --dry-run flag). Continue (y/n)? '.format(len(extra_files)))
+            if usr_in.lower() not in ['y', 'yes']:
+                print('Aborting cleanup mode.')
+                return
+        for file in extra_files:
+            print('Deleting file: {}'.format(file))
+            remove(file)
+        print('Complete.')
+        return
     
     # Begin execution loop.
     data = {'output_path':[], 'compressed_path':[], 'metadata_path':[]}
@@ -231,20 +291,20 @@ def preprocess(filepaths, output_dir, process_metadata, force_overwrite, num_wor
 
         # Serial execution.
         for file, out_stem in tqdm(zip(in_filepaths, out_filepath_stems), desc='Preprocessing files', total=len(in_filepaths)): 
-            # try:
-            output_paths, compressed_paths, metadata_path = batbot.pipeline(
-                file, 
-                out_file_stem=out_stem,
-                fast_mode=(not process_metadata),
-                force_overwrite=force_overwrite,
-                quiet=True,
-            )
-            data['output_path'].extend(output_paths)
-            data['compressed_path'].extend(compressed_paths)
-            if process_metadata:
-                data['metadata_path'].append(metadata_path)
-            # except:
-            #     warnings.warn('WARNING: Pipeline failed for file {}'.format(file))
+            try:
+                output_paths, compressed_paths, metadata_path = batbot.pipeline(
+                    file, 
+                    out_file_stem=out_stem,
+                    fast_mode=(not process_metadata),
+                    force_overwrite=force_overwrite,
+                    quiet=True,
+                )
+                data['output_path'].extend(output_paths)
+                data['compressed_path'].extend(compressed_paths)
+                if process_metadata:
+                    data['metadata_path'].append(metadata_path)
+            except:
+                warnings.warn('WARNING: Pipeline failed for file {}'.format(file))
                 # raise
     else:
         # Parallel execution.
@@ -286,7 +346,8 @@ def preprocess(filepaths, output_dir, process_metadata, force_overwrite, num_wor
             print(data['metadata_path'])
     else:
         with open(output_json, 'w') as outfile:
-            json.dump(data, outfile)
+            json.dump(data, outfile, indent=4)
+        print('Outputs written to {}'.format(output_json))
     print('Complete.')
 
     return data
@@ -359,7 +420,7 @@ def batch(
     log.debug('Outputting results...')
     if output:
         with open(output, 'w') as outfile:
-            json.dump(data, outfile)
+            json.dump(data, outfile, indent=4)
     else:
         print(data)
 
