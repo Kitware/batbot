@@ -144,18 +144,19 @@ def pipeline_multi_wrapper(
                                   position=worker_position,
                                   total=len(filepaths),
                                   leave=True):
-        # try:
-        output_paths, compressed_paths, metadata_path = pipeline(
-            in_file,
-            out_file_stem=out_stem,
-            fast_mode=fast_mode,
-            force_overwrite=force_overwrite,
-            quiet=quiet)
-        outputs['output_paths'].extend(output_paths)
-        outputs['compressed_paths'].extend(compressed_paths)
-        outputs['metadata_paths'].append(metadata_path)
-        # except:
-        #     print('WARNING: Pipeline failed on input file {}'.format(in_file))
+        try:
+            output_paths, compressed_paths, metadata_path = pipeline(
+                in_file,
+                out_file_stem=out_stem,
+                fast_mode=fast_mode,
+                force_overwrite=force_overwrite,
+                quiet=quiet)
+            outputs['output_paths'].extend(output_paths)
+            outputs['compressed_paths'].extend(compressed_paths)
+            outputs['metadata_paths'].append(metadata_path)
+        except:
+            print('WARNING: Pipeline failed on input file {}'.format(in_file))
+            # raise
 
     return tuple(outputs.values())
 
@@ -266,6 +267,7 @@ def example():
 
     wav_filepath = join(PWD, 'examples', 'example1.wav')
     # wav_filepath = join(PWD, 'examples', 'extras', '3517_NE_20220622_220344_814.wav')
+    # wav_filepath = join(PWD, 'examples', 'extras', 'p33_g67260_f29842117.wav')    
 
     if not exists(wav_filepath):
         wav_filepath = pooch.retrieve(
