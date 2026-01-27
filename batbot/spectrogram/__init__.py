@@ -5,11 +5,10 @@ import json
 import os
 import shutil
 import warnings
-from os.path import basename, exists, join, split, splitext
+from os.path import basename, exists, join, split
 
 import cv2
 import librosa
-import librosa.display
 import matplotlib.pyplot as plt
 
 # import networkx as nx
@@ -23,7 +22,6 @@ from scipy import ndimage
 from scipy.ndimage import gaussian_filter1d, median_filter
 import scipy.stats
 
-# from scipy.ndimage.filters import maximum_filter1d
 from shapely.geometry import Point
 from shapely.geometry.polygon import Polygon
 from skimage import draw, measure
@@ -1358,6 +1356,7 @@ def compute_wrapper(
     quiet=False,
     annotations=None,
     bitdepth=16,
+    mask_secondary_effects=False,
     debug=False,
     **kwargs,
 ):
@@ -1399,7 +1398,6 @@ def compute_wrapper(
     debug_path = get_debug_path(split(out_file_stem)[0], wav_filepath, enabled=debug)
 
     # Load the spectrogram from a WAV file on disk
-    # warnings.filterwarnings('ignore')
     with warnings.catch_warnings():
         warnings.simplefilter('ignore', category=DeprecationWarning)
         # ignore warning due to aifc deprecation
@@ -1409,7 +1407,6 @@ def compute_wrapper(
     # Estimate maximum frequency band containing data
     # Only data up to this maximum band should be used when computing statistics
     max_band_idx = min((int(np.where(bands < orig_sr / 2.02)[0][-1]), len(bands)-1))
-    # warnings.filterwarnings('error')
 
     # Apply a dynamic range to a fixed dB range
     stft_db = gain_stft(stft_db, fast_mode=fast_mode, max_band_idx=max_band_idx)
@@ -1425,9 +1422,6 @@ def compute_wrapper(
     x_step_ms = float(1e3 * (time_vec[1] - time_vec[0]))
     bands = np.around(bands).astype(np.int32).tolist()
     min_band_idx = len(bands) - max_band_idx - 1
-
-    # # Save the spectrogram image to disk
-    # cv2.imwrite('debug.tif', stft_db, [cv2.IMWRITE_TIFF_COMPRESSION, 1])
 
     if not fast_mode:
         # Plot the histogram, ignoring any non-zero values (will no-op if output_path is None)
@@ -1496,7 +1490,13 @@ def compute_wrapper(
         crop_length_r = max(0, int(round(0.45 * window - 1)))
         metas = []
         for start, stop in ranges:
-            segments['stft_db'].append(stft_db[:, start + crop_length_l : stop - crop_length_r])
+            if start > 0 and stop < stft_db.shape[1]:
+                segments['stft_db'].append(stft_db[:, start + crop_length_l : stop - crop_length_r])
+            elif start > 0:
+                # handle cases where candidate butts up against data edges
+                segments['stft_db'].append(stft_db[:, start + crop_length_l : stop])
+            else:
+                segments['stft_db'].append(stft_db[:, start : stop - crop_length_r])
             # Add basic metadata
             metadata = {
                 'segment start.ms': (start + crop_length_l) * x_step_ms,
@@ -1547,9 +1547,6 @@ def compute_wrapper(
             # Step 4.1 - Find the location(s) of peak amplitude
             max_locations = find_max_locations(segment)
 
-            # # Step 5 (OLD) - Threshold contour
-            # segment, med_db, std_db, peak_db = threshold_contour(segment, index, output_path=debug_path)
-
             # Step 5 - Find primary contour that contains max amplitude
             # (To use a local instead of global threshold, remove the threshold argument here)
             segmentmask, peak, segment_threshold = find_contour_and_peak(
@@ -1568,11 +1565,6 @@ def compute_wrapper(
             # Step 6 - Create final segmentmask
             segmentmask = refine_segmentmask(segmentmask, index, output_path=debug_path)
 
-            # # Step 6 (OLD) - Find the contour with the (most) max amplitude location(s)
-            # valid, segmentmask, peak = find_contour_connected_components(segment, index, max_locations, output_path=debug_path)
-            # # Step 6 (OLD) - Refine contour by removing any harmonic or echo
-            # segmentmask, peak = refine_contour(segment_, index, max_locations, segmentmask, peak, output_path=debug_path)
-
             # Step 7 - Calculate the first order harmonic and echo region
             harmonic = find_harmonic(segmentmask, index, freq_offset, output_path=debug_path)
             echo = find_echo(segmentmask, index, output_path=debug_path)
@@ -1582,10 +1574,11 @@ def compute_wrapper(
                 original, index, segmentmask, harmonic, echo, canvas, output_path=debug_path
             )
 
-            # # Remove harmonic and echo from segmentation ### TODO: make optional
-            # segment = remove_harmonic_and_echo(
-            #     segment, index, harmonic, echo, global_threshold, output_path=debug_path
-            # )
+            # Remove harmonic and echo from segmentation
+            if mask_secondary_effects:
+                segment = remove_harmonic_and_echo(
+                    segment, index, harmonic, echo, global_threshold, output_path=debug_path
+                )
 
             # Step 8 - Calculate the A* cost grid and bat call start/end points
             costs, grid, call_begin, call_end, boundary = calculate_astar_grid_and_endpoints(
@@ -1621,9 +1614,9 @@ def compute_wrapper(
                     )
                     for y, x in path_smoothed
                 ],
-                'start.ms': (start + left) * x_step_ms,
-                'end.ms': (start + right) * x_step_ms,
-                'duration.ms': (right - left) * x_step_ms,
+                'contour start.ms': (start + left) * x_step_ms,
+                'contour end.ms': (start + right) * x_step_ms,
+                'contour duration.ms': (right - left) * x_step_ms,
                 'threshold.amp': int(
                     round(255.0 * (segment_threshold / np.iinfo(stft_db.dtype).max))
                 ),
@@ -1649,6 +1642,23 @@ def compute_wrapper(
             }
             metadata.update(slopes)
 
+            # Trim segment around the bat call with a small buffer
+            buffer_ms = 1.0
+            buffer_pix = int(round(buffer_ms / x_step_ms))
+            trim_begin = max(0, min(segment.shape[1], call_begin[1] - buffer_pix))
+            trim_end = max(0, min(segment.shape[1], call_end[1] + buffer_pix))
+
+            segments['stft_db'].append(stft_db[:, start + trim_begin : start + trim_end])
+            segments['waveplot'].append(waveplot[:, start + trim_begin : start + trim_end])
+            segments['costs'].append(costs[:, trim_begin:trim_end])
+            if debug_path:
+                segments['canvas'].append(canvas[:, trim_begin:trim_end])
+
+            # Update metadata with segment start and stop
+            start_stop = {'segment start.ms': (start + trim_begin) * x_step_ms,
+                          'segment end.ms': (start + trim_end) * x_step_ms}
+            metadata.update(start_stop)
+
             # Normalize values
             for key, value in list(metadata.items()):
                 if value is None:
@@ -1673,18 +1683,6 @@ def compute_wrapper(
                     ]
 
             metas.append(metadata)
-
-            # Trim segment around the bat call with a small buffer
-            buffer_ms = 1.0
-            buffer_pix = int(round(buffer_ms / x_step_ms))
-            trim_begin = max(0, min(segment.shape[1], call_begin[1] - buffer_pix))
-            trim_end = max(0, min(segment.shape[1], call_end[1] + buffer_pix))
-
-            segments['stft_db'].append(stft_db[:, start + trim_begin : start + trim_end])
-            segments['waveplot'].append(waveplot[:, start + trim_begin : start + trim_end])
-            segments['costs'].append(costs[:, trim_begin:trim_end])
-            if debug_path:
-                segments['canvas'].append(canvas[:, trim_begin:trim_end])
 
     # Concatenate extracted, trimmed segments and other matrices
     for key in list(segments.keys()):

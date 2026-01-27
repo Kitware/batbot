@@ -17,8 +17,7 @@ from batbot import log
 from tqdm import tqdm
 
 
-import warnings
-warnings.filterwarnings("error")
+# warnings.filterwarnings("error")
 
 def pipeline_filepath_validator(ctx, param, value):
     if not exists(value):
