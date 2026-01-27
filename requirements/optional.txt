@@ -5,6 +5,7 @@ flake8
 # gradio
 ipython
 isort
+line_profiler
 # onnx
 # onnxruntime
 pre-commit

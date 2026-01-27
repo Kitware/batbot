@@ -16,7 +16,6 @@ import numpy as np
 import pyastar2d
 import scipy.signal  # Ensure this is at the top with other imports
 import tqdm
-from line_profiler import LineProfiler
 from scipy import ndimage
 
 # from PIL import Image
@@ -29,7 +28,12 @@ from skimage import draw, measure
 
 from batbot import log
 
-lp = LineProfiler()
+PROFILE = os.environ.get('BATBOT_PROFILE', '').lower() in ('1', 'true', 'yes')
+
+if PROFILE:
+    from line_profiler import LineProfiler
+
+    lp = LineProfiler()
 
 
 FREQ_MIN = 5e3
@@ -38,7 +42,8 @@ FREQ_MAX = 120e3
 
 def compute(*args, **kwargs):
     retval = compute_wrapper(*args, **kwargs)
-    lp.print_stats()
+    if PROFILE:
+        lp.print_stats()
     return retval
 
 
@@ -1298,7 +1303,7 @@ def calculate_harmonic_and_echo_flags(
     return harmonic_flag, harmonic_peak, echo_flag, echo_peak
 
 
-@lp
+@lp if PROFILE else lambda f: f
 def compute_wrapper(
     wav_filepath, annotations=None, output_folder='.', bitdepth=16, debug=False, **kwargs
 ):
