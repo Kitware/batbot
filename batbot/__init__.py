@@ -18,8 +18,8 @@ be run on WAV files.
 """
 
 import concurrent.futures
-from os.path import exists, join, split, splitext
 from multiprocessing import Manager
+from os.path import exists, join, split, splitext
 from pathlib import Path
 
 import pooch
@@ -101,15 +101,17 @@ def pipeline(
         # default to writing directly to working directory
         out_file_stem = splitext(split(filepath)[-1])[0]
     # Generate spectrogram
-    output_paths, compressed_paths, metadata_path, metadata = spectrogram.compute(filepath, 
-                                                                                  out_file_stem=out_file_stem,
-                                                                                  fast_mode=fast_mode,
-                                                                                  force_overwrite=force_overwrite,
-                                                                                  quiet=quiet,
-                                                                                  debug=debug
-                                                                                  )
+    output_paths, compressed_paths, metadata_path, metadata = spectrogram.compute(
+        filepath,
+        out_file_stem=out_file_stem,
+        fast_mode=fast_mode,
+        force_overwrite=force_overwrite,
+        quiet=quiet,
+        debug=debug,
+    )
 
     return output_paths, compressed_paths, metadata_path
+
 
 def pipeline_multi_wrapper(
     filepaths,
@@ -118,7 +120,7 @@ def pipeline_multi_wrapper(
     force_overwrite=False,
     worker_position=None,
     quiet=False,
-    tqdm_lock=None
+    tqdm_lock=None,
 ):
     """Fault-tolerant wrapper for multiple inputs.
 
@@ -133,34 +135,40 @@ def pipeline_multi_wrapper(
     """
 
     if out_file_stems is not None:
-        assert len(filepaths) == len(out_file_stems), 'Input filepaths and out_file_stems have different length.'
+        assert len(filepaths) == len(
+            out_file_stems
+        ), 'Input filepaths and out_file_stems have different length.'
     else:
-        out_file_stems = [None]*len(filepaths)
+        out_file_stems = [None] * len(filepaths)
 
     outputs = {'output_paths': [], 'compressed_paths': [], 'metadata_paths': [], 'failed_files': []}
     # print(filepaths, out_file_stems)
     if tqdm_lock is not None:
         tqdm.set_lock(tqdm_lock)
-    for in_file, out_stem in tqdm(zip(filepaths, out_file_stems), 
-                                  desc='Processing, worker {}'.format(worker_position), 
-                                  position=worker_position,
-                                  total=len(filepaths),
-                                  leave=True):
+    for in_file, out_stem in tqdm(
+        zip(filepaths, out_file_stems),
+        desc='Processing, worker {}'.format(worker_position),
+        position=worker_position,
+        total=len(filepaths),
+        leave=True,
+    ):
         try:
             output_paths, compressed_paths, metadata_path = pipeline(
                 in_file,
                 out_file_stem=out_stem,
                 fast_mode=fast_mode,
                 force_overwrite=force_overwrite,
-                quiet=quiet)
+                quiet=quiet,
+            )
             outputs['output_paths'].extend(output_paths)
             outputs['compressed_paths'].extend(compressed_paths)
             outputs['metadata_paths'].append(metadata_path)
-        except:
-            outputs['failed_files'].append(str(in_file))
+        except Exception as e:
+            outputs['failed_files'].append((str(in_file), e))
             # raise
 
     return tuple(outputs.values())
+
 
 def parallel_pipeline(
     in_file_chunks,
@@ -174,12 +182,14 @@ def parallel_pipeline(
 ):
 
     if out_stem_chunks is None:
-        out_stem_chunks = [None]*len(in_file_chunks)
+        out_stem_chunks = [None] * len(in_file_chunks)
 
     if len(in_file_chunks) == 0:
         return None
     else:
-        assert len(in_file_chunks) == len(out_stem_chunks), 'in_file_chunks and out_stem_chunks must have the same length.'
+        assert len(in_file_chunks) == len(
+            out_stem_chunks
+        ), 'in_file_chunks and out_stem_chunks must have the same length.'
 
     if threaded:
         executor_cls = concurrent.futures.ThreadPoolExecutor
@@ -196,15 +206,21 @@ def parallel_pipeline(
     with tqdm(total=len(in_file_chunks), disable=quiet, desc=desc) as progress:
         with executor_cls(max_workers=num_workers) as executor:
 
-            futures = [executor.submit(pipeline_multi_wrapper, 
-                                       filepaths=file_chunk, 
-                                       out_file_stems=out_stem_chunk, 
-                                       fast_mode=fast_mode, 
-                                       force_overwrite=force_overwrite, 
-                                       worker_position=index % num_workers, 
-                                       quiet=quiet,
-                                       tqdm_lock=tqdm_lock) 
-                       for index, (file_chunk, out_stem_chunk) in enumerate(zip(in_file_chunks, out_stem_chunks))]
+            futures = [
+                executor.submit(
+                    pipeline_multi_wrapper,
+                    filepaths=file_chunk,
+                    out_file_stems=out_stem_chunk,
+                    fast_mode=fast_mode,
+                    force_overwrite=force_overwrite,
+                    worker_position=index % num_workers,
+                    quiet=quiet,
+                    tqdm_lock=tqdm_lock,
+                )
+                for index, (file_chunk, out_stem_chunk) in enumerate(
+                    zip(in_file_chunks, out_stem_chunks)
+                )
+            ]
 
             for future in concurrent.futures.as_completed(futures):
                 output_paths, compressed_paths, metadata_path, failed_files = future.result()
@@ -213,8 +229,9 @@ def parallel_pipeline(
                 outputs['metadata_paths'].extend(metadata_path)
                 outputs['failed_files'].extend(failed_files)
                 progress.update(1)
-    
+
     return tuple(outputs.values())
+
 
 def batch(
     filepaths,
@@ -270,7 +287,7 @@ def example():
 
     wav_filepath = join(PWD, 'examples', 'example1.wav')
     # wav_filepath = join(PWD, 'examples', 'extras', '3517_NE_20220622_220344_814.wav')
-    # wav_filepath = join(PWD, 'examples', 'extras', 'p33_g67260_f29842117.wav')    
+    # wav_filepath = join(PWD, 'examples', 'extras', 'p33_g67260_f29842117.wav')
 
     if not exists(wav_filepath):
         wav_filepath = pooch.retrieve(

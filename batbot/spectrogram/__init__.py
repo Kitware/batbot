@@ -1,10 +1,10 @@
 """ """
 
-from glob import glob
 import json
 import os
 import shutil
 import warnings
+from glob import glob
 from os.path import basename, exists, join, split
 
 import cv2
@@ -14,14 +14,13 @@ import matplotlib.pyplot as plt
 # import networkx as nx
 import numpy as np
 import pyastar2d
+import scipy.stats
 import tqdm
 from line_profiler import LineProfiler
 from scipy import ndimage
 
 # from PIL import Image
 from scipy.ndimage import gaussian_filter1d, median_filter
-import scipy.stats
-
 from shapely.geometry import Point
 from shapely.geometry.polygon import Polygon
 from skimage import draw, measure
@@ -308,10 +307,10 @@ def load_stft(
 
     # Estimate maximum frequency band containing data based on original sample rate
     # Only data up to this maximum band should be used when computing statistics
-    max_band_idx = min((int(np.where(bands < orig_sr / 2.02)[0][-1]), len(bands)-1))
+    max_band_idx = min((int(np.where(bands < orig_sr / 2.02)[0][-1]), len(bands) - 1))
     # set non-physical noise above the max band to a minimum value
-    if max_band_idx < len(bands)-1:
-        stft_db[max_band_idx+1:, :] = np.min(stft_db[:max_band_idx+1, :])
+    if max_band_idx < len(bands) - 1:
+        stft_db[max_band_idx + 1 :, :] = np.min(stft_db[: max_band_idx + 1, :])
 
     return stft_db, waveplot, sr, bands, duration, min_index, time_vec, orig_sr, max_band_idx
 
@@ -331,7 +330,7 @@ def gain_stft(stft_db, gain_db=120.0, autogain_stddev=5.0, max_band_idx=None):
     # Calculate the non-zero median DB and MAD
     #   autogain signal if (median - alpha * deviation) is higher than provided gain
     if max_band_idx is not None:
-        temp = stft_db[:max_band_idx+1,:][stft_db[:max_band_idx+1,:] > 0]
+        temp = stft_db[: max_band_idx + 1, :][stft_db[: max_band_idx + 1, :] > 0]
     else:
         temp = stft_db[stft_db > 0]
     med_db = np.median(temp)
@@ -586,7 +585,14 @@ def calculate_mean_within_stddev_window(values, window):
 
 
 def tighten_ranges(
-    stft_db, ranges, window, duration, skew_stddev=2.0, min_duration_ms=2.0, output_path='.', quiet=False
+    stft_db,
+    ranges,
+    window,
+    duration,
+    skew_stddev=2.0,
+    min_duration_ms=2.0,
+    output_path='.',
+    quiet=False,
 ):
     minimum_duration = int(np.around(stft_db.shape[1] / (duration * 1e3) * min_duration_ms))
 
@@ -755,7 +761,7 @@ def threshold_contour(segment, index, output_path='.'):
 def filter_contour(segment, index, med_db=None, std_db=None, kernel=5, output_path='.'):
     # segment = cv2.erode(segment, np.ones((3, 3), np.uint8), iterations=1)
 
-    segment = median_filter(segment, size=(kernel,kernel), mode='reflect')
+    segment = median_filter(segment, size=(kernel, kernel), mode='reflect')
 
     if None not in {med_db, std_db}:
         segment_threshold = med_db - std_db
@@ -1230,14 +1236,14 @@ def find_contour_and_peak(
         threshold = peak_db - threshold_std * peak_db_std
 
     # pad all edges to handle signal that butts up against segment edges
-    segment_pad = np.pad(segment, ((2,2),(2,2)))
+    segment_pad = np.pad(segment, ((2, 2), (2, 2)))
     contours = measure.find_contours(
         segment_pad, level=threshold, fully_connected='high', positive_orientation='high'
     )
     # remove padding in output contour
     for contour in contours:
-        contour[:,0] -= 2
-        contour[:,1] -= 2
+        contour[:, 0] -= 2
+        contour[:, 1] -= 2
 
     # Display the image and plot all contours found
     if output_path:
@@ -1410,12 +1416,17 @@ def compute_wrapper(
         test_file = '{}.*'.format(out_file_stem)
         test_glob = glob(test_file)
         if len(test_glob) > 0:
-            print('NOTE: Found existing file(s) at {} with force_overwrite=False. Skipping file.'.format(test_file))
+            if not quiet:
+                print(
+                    'NOTE: Found existing file(s) at {} with force_overwrite=False. Skipping file.'.format(
+                        test_file
+                    )
+                )
             return [], [], [], {}
 
     if fast_mode:
         bitdepth = 8
-        quiet=True
+        quiet = True
     assert bitdepth in [8, 16]
     dtype = np.uint8 if bitdepth == 8 else np.uint16
 
@@ -1427,8 +1438,8 @@ def compute_wrapper(
     with warnings.catch_warnings():
         warnings.simplefilter('ignore', category=DeprecationWarning)
         # ignore warning due to aifc deprecation
-        stft_db, waveplot, sr, bands, duration, freq_offset, time_vec, orig_sr, max_band_idx = load_stft(
-            wav_filepath, fast_mode=fast_mode
+        stft_db, waveplot, sr, bands, duration, freq_offset, time_vec, orig_sr, max_band_idx = (
+            load_stft(wav_filepath, fast_mode=fast_mode)
         )
 
     # Apply a dynamic range to a fixed dB range
@@ -1449,7 +1460,11 @@ def compute_wrapper(
     if not fast_mode:
         # Plot the histogram, ignoring any non-zero values (will no-op if output_path is None)
         global_med_db, global_std_db, global_peak_db = plot_histogram(
-            stft_db, ignore_zeros=True, smoothing=512, min_band_idx=min_band_idx, output_path=debug_path
+            stft_db,
+            ignore_zeros=True,
+            smoothing=512,
+            min_band_idx=min_band_idx,
+            output_path=debug_path,
         )
         # Estimate a global threshold for finding the edges of bat call contours
         global_threshold_std = 2.0
@@ -1472,7 +1487,11 @@ def compute_wrapper(
         time_vec=time_vec,
     )
     candidates, candidate_max_dbs = create_coarse_candidates(
-        stft_db, window, stride, threshold_stddev=threshold_stddev, min_band_idx=min_band_idx, 
+        stft_db,
+        window,
+        stride,
+        threshold_stddev=threshold_stddev,
+        min_band_idx=min_band_idx,
     )
 
     if fast_mode:
@@ -1486,9 +1505,15 @@ def compute_wrapper(
         candidate_max_dbs = []
 
     # Filter all candidates to the ranges that have a substantial right-side skew
-    
+
     ranges, reject_idxs = filter_candidates_to_ranges(
-        stft_db, candidates, area_percent=0.01, min_band_idx=min_band_idx, output_path=debug_path, fast_mode=fast_mode, quiet=quiet
+        stft_db,
+        candidates,
+        area_percent=0.01,
+        min_band_idx=min_band_idx,
+        output_path=debug_path,
+        fast_mode=fast_mode,
+        quiet=quiet,
     )
 
     # Add in user-specified annotations to ranges
@@ -1535,7 +1560,9 @@ def compute_wrapper(
     else:
 
         # Tighten the ranges by looking for substantial right-side skew (use stride for a smaller sampling window)
-        ranges = tighten_ranges(stft_db, ranges, stride, duration, output_path=debug_path, quiet=quiet)
+        ranges = tighten_ranges(
+            stft_db, ranges, stride, duration, output_path=debug_path, quiet=quiet
+        )
 
         # Extract chirp metrics and metadata
         segments = {
@@ -1613,7 +1640,12 @@ def compute_wrapper(
             min_bandwidth_khz = 1e3
             min_duration_ms = 2.0
             bandwidth, duration_, significant = significant_contour_path(
-                call_begin, call_end, y_step_freq, x_step_ms, min_bandwidth_khz=min_bandwidth_khz, min_duration_ms=min_duration_ms
+                call_begin,
+                call_end,
+                y_step_freq,
+                x_step_ms,
+                min_bandwidth_khz=min_bandwidth_khz,
+                min_duration_ms=min_duration_ms,
             )
             if not significant:
                 continue
@@ -1678,9 +1710,11 @@ def compute_wrapper(
                 segments['canvas'].append(canvas[:, trim_begin:trim_end])
 
             # Update metadata with segment start and stop
-            start_stop = {'segment start.ms': (start + trim_begin) * x_step_ms,
-                          'segment end.ms': (start + trim_end) * x_step_ms,
-                          'segment duration.ms': (trim_end - trim_begin) * x_step_ms}
+            start_stop = {
+                'segment start.ms': (start + trim_begin) * x_step_ms,
+                'segment end.ms': (start + trim_end) * x_step_ms,
+                'segment duration.ms': (trim_end - trim_begin) * x_step_ms,
+            }
             metadata.update(start_stop)
 
             # Normalize values
