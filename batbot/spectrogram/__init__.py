@@ -267,12 +267,16 @@ def load_stft(
     # Resample the waveform
     waveform = librosa.resample(waveform_, orig_sr=orig_sr, target_sr=sr)
 
+    # TODO: signal processing: remove DC offset, time window edges of waveform
+
     # Convert the waveform to a (complex) spectrogram
     stft = librosa.stft(
         waveform, n_fft=n_fft, window=window, win_length=win_length, hop_length=hop_length
     )
     # Convert the complex power (amplitude + phase) into amplitude (decibels)
-    stft_db = librosa.power_to_db(np.abs(stft) ** 2, ref=np.max)
+    # Do not threshold the data - threshold will be applied later
+    # stft_db = librosa.power_to_db(np.abs(stft) ** 2, ref=np.max, top_db=np.inf) # OLD method, cuts off lower values
+    stft_db = 10 * np.log10(np.square(np.abs(stft)))
     # Retrieve time vector in seconds corresponding to STFT
     time_vec = librosa.frames_to_time(
         range(stft_db.shape[1]), sr=sr, hop_length=hop_length, n_fft=n_fft
@@ -305,7 +309,7 @@ def load_stft(
 
 
 # @lp
-def gain_stft(stft_db, gain_db=80.0, autogain_stddev=5.0, fast_mode=False, max_band_idx=None):
+def gain_stft(stft_db, gain_db=120.0, autogain_stddev=5.0, fast_mode=False, max_band_idx=None):
     # Subtract per-frequency median DB
     med = np.median(stft_db, axis=1).reshape(-1, 1)
     stft_db -= med
