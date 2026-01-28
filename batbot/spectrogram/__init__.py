@@ -305,11 +305,18 @@ def load_stft(
     else:
         waveplot = generate_waveplot(waveform, stft_db, hop_length=hop_length)
 
-    return stft_db, waveplot, sr, bands, duration, min_index, time_vec, orig_sr
+    # Estimate maximum frequency band containing data based on original sample rate
+    # Only data up to this maximum band should be used when computing statistics
+    max_band_idx = min((int(np.where(bands < orig_sr / 2.02)[0][-1]), len(bands)-1))
+    # set non-physical noise above the max band to a minimum value
+    if max_band_idx < len(bands)-1:
+        stft_db[max_band_idx+1:, :] = np.min(stft_db[:max_band_idx+1, :])
+
+    return stft_db, waveplot, sr, bands, duration, min_index, time_vec, orig_sr, max_band_idx
 
 
 # @lp
-def gain_stft(stft_db, gain_db=120.0, autogain_stddev=5.0, fast_mode=False, max_band_idx=None):
+def gain_stft(stft_db, gain_db=120.0, autogain_stddev=5.0, max_band_idx=None):
     # Subtract per-frequency median DB
     med = np.median(stft_db, axis=1).reshape(-1, 1)
     stft_db -= med
@@ -320,18 +327,17 @@ def gain_stft(stft_db, gain_db=120.0, autogain_stddev=5.0, fast_mode=False, max_
     assert stft_db.max() == 0
     stft_db += gain_db
 
-    if not fast_mode:
-        # Calculate the non-zero median DB and MAD
-        #   autogain signal if (median - alpha * deviation) is higher than provided gain
-        if max_band_idx is not None:
-            temp = stft_db[:max_band_idx+1,:][stft_db[:max_band_idx+1,:] > 0]
-        else:
-            temp = stft_db[stft_db > 0]
-        med_db = np.median(temp)
-        std_db = scipy.stats.median_abs_deviation(temp, axis=None, scale='normal')
-        autogain_value = med_db - (autogain_stddev * std_db)
-        if autogain_value > 0:
-            stft_db -= autogain_value
+    # Calculate the non-zero median DB and MAD
+    #   autogain signal if (median - alpha * deviation) is higher than provided gain
+    if max_band_idx is not None:
+        temp = stft_db[:max_band_idx+1,:][stft_db[:max_band_idx+1,:] > 0]
+    else:
+        temp = stft_db[stft_db > 0]
+    med_db = np.median(temp)
+    std_db = scipy.stats.median_abs_deviation(temp, axis=None, scale='normal')
+    autogain_value = med_db - (autogain_stddev * std_db)
+    if autogain_value > 0:
+        stft_db -= autogain_value
 
     # Clip values below zero
     stft_db = np.clip(stft_db, 0.0, None)
@@ -1420,15 +1426,12 @@ def compute_wrapper(
     with warnings.catch_warnings():
         warnings.simplefilter('ignore', category=DeprecationWarning)
         # ignore warning due to aifc deprecation
-        stft_db, waveplot, sr, bands, duration, freq_offset, time_vec, orig_sr = load_stft(
+        stft_db, waveplot, sr, bands, duration, freq_offset, time_vec, orig_sr, max_band_idx = load_stft(
             wav_filepath, fast_mode=fast_mode
         )
-    # Estimate maximum frequency band containing data
-    # Only data up to this maximum band should be used when computing statistics
-    max_band_idx = min((int(np.where(bands < orig_sr / 2.02)[0][-1]), len(bands)-1))
 
     # Apply a dynamic range to a fixed dB range
-    stft_db = gain_stft(stft_db, fast_mode=fast_mode, max_band_idx=max_band_idx)
+    stft_db = gain_stft(stft_db, max_band_idx=max_band_idx)
 
     # Bin the floating point data to X-bit integers (X=8 or X=16)
     stft_db = normalize_stft(stft_db, None, dtype)
