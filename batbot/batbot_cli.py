@@ -149,7 +149,7 @@ def pipeline(
 )
 @click.option(
     '--cleanup',
-    help='For the given input filepaths and --output-dir arguments, delete any extra files that would not have been created by the batbot preprocess. Acts as if --force-overwrite flag is given. WARNING: This will delete files, recommend running with the --dry-run flag first and carefully examining the output!',
+    help='For the given input filepaths and --output-dir arguments, delete any extra files that would not have been created by the batbot preprocess. Skips hidden files starting with ".". Acts as if --force-overwrite flag is given (does not delete existing, preprocessed outputs). WARNING: This will delete files, recommend running with the --dry-run flag first and carefully examining the output!',
     is_flag=True,
 )
 @click.option(
@@ -281,13 +281,8 @@ def preprocess(filepaths, output_dir, process_metadata, force_overwrite, num_wor
         return
     
     # Begin execution loop.
-    data = {'output_path':[], 'compressed_path':[], 'metadata_path':[]}
+    data = {'output_path':[], 'compressed_path':[], 'metadata_path':[], 'failed_files':[]}
     if num_workers is None or num_workers == 0:
-        zipped = np.stack((in_filepaths, out_filepath_stems), axis=-1)
-        np.random.shuffle(zipped)
-        assert all([x in zipped[:,0] and y in zipped[:,1] for x, y in zip(in_filepaths, out_filepath_stems)])
-        in_filepaths, out_filepath_stems = zipped.T
-        assert all([basename(y) in basename(x) for x, y in zip(in_filepaths, out_filepath_stems)])
 
         # Serial execution.
         for file, out_stem in tqdm(zip(in_filepaths, out_filepath_stems), desc='Preprocessing files', total=len(in_filepaths)): 
@@ -305,11 +300,13 @@ def preprocess(filepaths, output_dir, process_metadata, force_overwrite, num_wor
                     data['metadata_path'].append(metadata_path)
             except:
                 warnings.warn('WARNING: Pipeline failed for file {}'.format(file))
-                # raise
+                data['failed_files'].append(str(file))
+            #     raise
     else:
         # Parallel execution.
         # shuffle input and output paths
         zipped = np.stack((in_filepaths, out_filepath_stems), axis=-1)
+        np.random.seed(0)
         np.random.shuffle(zipped)
         assert all([x in zipped[:,0] and y in zipped[:,1] for x, y in zip(in_filepaths, out_filepath_stems)])
         in_filepaths, out_filepath_stems = zipped.T
@@ -320,7 +317,7 @@ def preprocess(filepaths, output_dir, process_metadata, force_overwrite, num_wor
         out_stem_chunks = np.array_split(out_filepath_stems, num_workers)
 
         # send to parallel function
-        output_paths, compressed_paths, metadata_path = batbot.parallel_pipeline(
+        output_paths, compressed_paths, metadata_paths, failed_files = batbot.parallel_pipeline(
             in_file_chunks=in_file_chunks,
             out_stem_chunks=out_stem_chunks,
             fast_mode=(not process_metadata),
@@ -333,22 +330,25 @@ def preprocess(filepaths, output_dir, process_metadata, force_overwrite, num_wor
         data['output_path'].extend(output_paths)
         data['compressed_path'].extend(compressed_paths)
         if process_metadata:
-            data['metadata_path'].append(metadata_path)
+            data['metadata_path'].extend(metadata_paths)
+        data['failed_files'].extend(failed_files)
 
     if output_json is None:
-        print('')
-        print('Full spectrogram output paths:')
-        print(data['output_path'])
-        print('Compressed spectrogram output paths:')
-        print(data['compressed_path'])
+        import pprint
+        print('\nFull spectrogram output paths:')
+        pprint.pp(sorted(data['output_path']))
+        print('\nCompressed spectrogram output paths:')
+        pprint.pp(sorted(data['compressed_path']))
         if process_metadata:
-            print('Processed metadata paths:')
-            print(data['metadata_path'])
+            print('\nProcessed metadata paths:')
+            pprint.pp(sorted(data['metadata_path']))
+        print('\nFiles that failed processing and were skipped:')
+        pprint.pp(sorted(data['failed_files']))
     else:
         with open(output_json, 'w') as outfile:
             json.dump(data, outfile, indent=4)
         print('Outputs written to {}'.format(output_json))
-    print('Complete.')
+    print('\nComplete.')
 
     return data
 
