@@ -138,7 +138,7 @@ def pipeline(
 )
 @click.option(
     '--output-json',
-    help='Path to output JSON (if unspecified, output file locations are printed to screen)',
+    help='Path to output JSON (if unspecified, output file locations are printed to screen).',
     default=None,
     type=str,
 )
@@ -163,6 +163,8 @@ def preprocess(filepaths, output_dir, process_metadata, force_overwrite, num_wor
     will recursively search through the directory and all subfolders to find all contained *.wav files.
     Alternatively, the argument can be given as a string using wildcard ** for folders and/or * in filenames
     (if ** wildcard is used, will recursively search through all subfolders).
+    
+    \b
     Examples:
         batbot preprocess ../data -o ./tmp
         batbot preprocess "../data/**/*.wav"
