@@ -2,22 +2,31 @@
 """
 CLI for BatBot
 """
-from glob import glob
 import json
-from os.path import exists, commonpath, join, relpath, split, splitext, basename, isdir, isfile
-from os import makedirs, getcwd, remove
 import warnings
+from glob import glob
+from os import getcwd, makedirs, remove
+from os.path import (
+    basename,
+    commonpath,
+    exists,
+    isdir,
+    isfile,
+    join,
+    relpath,
+    split,
+    splitext,
+)
 
 import click
 import numpy as np
+from tqdm import tqdm
 
 import batbot
 from batbot import log
 
-from tqdm import tqdm
-
-
 # warnings.filterwarnings("error")
+
 
 def pipeline_filepath_validator(ctx, param, value):
     if not exists(value):
@@ -106,6 +115,7 @@ def pipeline(
     else:
         print(data)
 
+
 @click.command('preprocess')
 @click.argument(
     'filepaths',
@@ -113,24 +123,28 @@ def pipeline(
     type=str,
 )
 @click.option(
-    '--output-dir', '-o',
+    '--output-dir',
+    '-o',
     help='Processed file root output directory. Outputs will attempt to mirror input file directory structure if given multiple inputs (unless --no-file-structure flag is given). Defaults to current working directory.',
     nargs=1,
     default='.',
     type=str,
 )
 @click.option(
-    '--process-metadata', '-m',
+    '--process-metadata',
+    '-m',
     help='Use a slower version of the pipeline which increases spectogram compression quality and also outputs bat call metadata.',
     is_flag=True,
 )
 @click.option(
-    '--force-overwrite', '-f',
+    '--force-overwrite',
+    '-f',
     help='Force overwriting of compressed spectrogram and other output files.',
     is_flag=True,
 )
 @click.option(
-    '--num-workers', '-n',
+    '--num-workers',
+    '-n',
     help='Number of parallel workers to use. Set to zero for serial computation only.',
     nargs=1,
     default=0,
@@ -143,7 +157,8 @@ def pipeline(
     type=str,
 )
 @click.option(
-    '--dry-run', '-d',
+    '--dry-run',
+    '-d',
     help='List out all the audio files to be loaded and all the anticipated output files. Additionally lists all "extra" files in the output directory that would be deleted if using the --cleanup flag.',
     is_flag=True,
 )
@@ -157,13 +172,23 @@ def pipeline(
     help='(Not recommended) Turn off input file directory structure mirroring. All outputs will be written directly into the provided output dir. WARNING: If multiple input files have the same filename, outputs will overwrite!',
     is_flag=True,
 )
-def preprocess(filepaths, output_dir, process_metadata, force_overwrite, num_workers, output_json, dry_run, cleanup, no_file_structure):
-    """Generate compressed spectrogram images for wav files into the current working directory. 
+def preprocess(
+    filepaths,
+    output_dir,
+    process_metadata,
+    force_overwrite,
+    num_workers,
+    output_json,
+    dry_run,
+    cleanup,
+    no_file_structure,
+):
+    """Generate compressed spectrogram images for wav files into the current working directory.
     Takes one or more space separated arguments of filepaths to process. If given a directory name,
     will recursively search through the directory and all subfolders to find all contained *.wav files.
     Alternatively, the argument can be given as a string using wildcard ** for folders and/or * in filenames
     (if ** wildcard is used, will recursively search through all subfolders).
-    
+
     \b
     Examples:
         batbot preprocess ../data -o ./tmp
@@ -176,7 +201,7 @@ def preprocess(filepaths, output_dir, process_metadata, force_overwrite, num_wor
     in_filepaths = []
     for file in filepaths:
         if isdir(file):
-            in_filepaths.extend(glob(join(file,'**/*.wav'), recursive=True))
+            in_filepaths.extend(glob(join(file, '**/*.wav'), recursive=True))
         elif isfile(file):
             in_filepaths.append(file)
         else:
@@ -195,7 +220,9 @@ def preprocess(filepaths, output_dir, process_metadata, force_overwrite, num_wor
     if no_file_structure:
         out_filepath_stems = [join(root_outpath, splitext(x)[0]) for x in in_filepaths]
     else:
-        out_filepath_stems = [splitext(join(root_outpath, relpath(x, root_inpath)))[0] for x in in_filepaths]
+        out_filepath_stems = [
+            splitext(join(root_outpath, relpath(x, root_inpath)))[0] for x in in_filepaths
+        ]
         new_dirs = [split(x)[0] for x in out_filepath_stems]
         for new_dir in set(new_dirs):
             makedirs(new_dir, exist_ok=True)
@@ -217,7 +244,11 @@ def preprocess(filepaths, output_dir, process_metadata, force_overwrite, num_wor
         out_filepath_stems = out_filepath_stems[np.invert(idx_remove)]
         n_skipped = sum(idx_remove)
         if len(in_filepaths) == 0:
-            print('Found no unprocessed files given filepaths input {} and output directory "{}" after skipping {} files'.format(filepaths, root_outpath, n_skipped))
+            print(
+                'Found no unprocessed files given filepaths input {} and output directory "{}" after skipping {} files'.format(
+                    filepaths, root_outpath, n_skipped
+                )
+            )
             print('If desired, use --force-overwrite flag to overwrite existing processed data')
             return
 
@@ -247,18 +278,29 @@ def preprocess(filepaths, output_dir, process_metadata, force_overwrite, num_wor
         print('\tFlattening output file structure')
     print('\tCurrent working dir: {}'.format(getcwd()))
     print('\tOutput root dir: {}'.format(output_dir))
-    print('\tFirst input file -> output files: {} -> {}.*'.format(in_filepaths[0], out_filepath_stems[0]))
+    print(
+        '\tFirst input file -> output files: {} -> {}.*'.format(
+            in_filepaths[0], out_filepath_stems[0]
+        )
+    )
     if len(in_filepaths) > 2:
-        print('\tLast input file -> output files: {} -> {}.*'.format(in_filepaths[-1], out_filepath_stems[-1]))
+        print(
+            '\tLast input file -> output files: {} -> {}.*'.format(
+                in_filepaths[-1], out_filepath_stems[-1]
+            )
+        )
 
     if dry_run:
         # Print out files to be processed, anticipated outputs, and files that would be deleted in cleanup mode.
         print('\nDry run mode active - skipping all processing')
         data = {}
-        data['input file, output file stem'] = [(str(x),'{}.*'.format(y)) for x, y in zip(in_filepaths, out_filepath_stems)]
+        data['input file, output file stem'] = [
+            (str(x), '{}.*'.format(y)) for x, y in zip(in_filepaths, out_filepath_stems)
+        ]
         data['files to be deleted in cleanup'] = list(extra_files)
         if output_json is None:
             import pprint
+
             pprint.pp(data)
         else:
             with open(output_json, 'w') as outfile:
@@ -266,13 +308,17 @@ def preprocess(filepaths, output_dir, process_metadata, force_overwrite, num_wor
             print('Outputs written to {}'.format(output_json))
         print('Complete.')
         return
-    
+
     if cleanup:
         print('\nCleanup mode active - skipping all processing')
         if len(extra_files) == 0:
             print('No files to delete')
         else:
-            usr_in = input('Found {} files to delete (recommend to see details by running with --dry-run flag). Continue (y/n)? '.format(len(extra_files)))
+            usr_in = input(
+                'Found {} files to delete (recommend to see details by running with --dry-run flag). Continue (y/n)? '.format(
+                    len(extra_files)
+                )
+            )
             if usr_in.lower() not in ['y', 'yes']:
                 print('Aborting cleanup mode.')
                 return
@@ -281,16 +327,20 @@ def preprocess(filepaths, output_dir, process_metadata, force_overwrite, num_wor
             remove(file)
         print('Complete.')
         return
-    
+
     # Begin execution loop.
-    data = {'output_path':[], 'compressed_path':[], 'metadata_path':[], 'failed_files':[]}
+    data = {'output_path': [], 'compressed_path': [], 'metadata_path': [], 'failed_files': []}
     if num_workers is None or num_workers == 0:
 
         # Serial execution.
-        for file, out_stem in tqdm(zip(in_filepaths, out_filepath_stems), desc='Preprocessing files', total=len(in_filepaths)): 
+        for file, out_stem in tqdm(
+            zip(in_filepaths, out_filepath_stems),
+            desc='Preprocessing files',
+            total=len(in_filepaths),
+        ):
             try:
                 output_paths, compressed_paths, metadata_path = batbot.pipeline(
-                    file, 
+                    file,
                     out_file_stem=out_stem,
                     fast_mode=(not process_metadata),
                     force_overwrite=force_overwrite,
@@ -300,9 +350,9 @@ def preprocess(filepaths, output_dir, process_metadata, force_overwrite, num_wor
                 data['compressed_path'].extend(compressed_paths)
                 if process_metadata:
                     data['metadata_path'].append(metadata_path)
-            except:
+            except Exception as e:
                 warnings.warn('WARNING: Pipeline failed for file {}'.format(file))
-                data['failed_files'].append(str(file))
+                data['failed_files'].append((str(file), e))
             #     raise
     else:
         # Parallel execution.
@@ -310,7 +360,12 @@ def preprocess(filepaths, output_dir, process_metadata, force_overwrite, num_wor
         zipped = np.stack((in_filepaths, out_filepath_stems), axis=-1)
         np.random.seed(0)
         np.random.shuffle(zipped)
-        assert all([x in zipped[:,0] and y in zipped[:,1] for x, y in zip(in_filepaths, out_filepath_stems)])
+        assert all(
+            [
+                x in zipped[:, 0] and y in zipped[:, 1]
+                for x, y in zip(in_filepaths, out_filepath_stems)
+            ]
+        )
         in_filepaths, out_filepath_stems = zipped.T
         assert all([basename(y) in basename(x) for x, y in zip(in_filepaths, out_filepath_stems)])
 
@@ -337,6 +392,7 @@ def preprocess(filepaths, output_dir, process_metadata, force_overwrite, num_wor
 
     if output_json is None:
         import pprint
+
         print('\nFull spectrogram output paths:')
         pprint.pp(sorted(data['output_path']))
         print('\nCompressed spectrogram output paths:')
@@ -344,7 +400,7 @@ def preprocess(filepaths, output_dir, process_metadata, force_overwrite, num_wor
         if process_metadata:
             print('\nProcessed metadata paths:')
             pprint.pp(sorted(data['metadata_path']))
-        print('\nFiles that failed processing and were skipped:')
+        print('\nFiles skipped due to failure, and corresponding exceptions:')
         pprint.pp(sorted(data['failed_files']))
     else:
         with open(output_json, 'w') as outfile:
