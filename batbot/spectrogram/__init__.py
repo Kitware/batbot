@@ -51,7 +51,7 @@ def get_islands(data):
 
 
 def get_slope_islands(slope_flags):
-    flags = slope_flags.astype(np.uint8)
+    flags = slope_flags.astype(np.uint16)
     islands = get_islands(flags)
     idx = int(np.argmax([val.sum() for val in islands]))
     islands = [val * (1 if i == idx else 0) for i, val in enumerate(islands)]
@@ -443,7 +443,10 @@ def filter_candidates_to_ranges(
         views = np.lib.stride_tricks.sliding_window_view(candidate, (window, candidate.shape[1]))[
             ::stride_, 0
         ]
-        skews = scipy.stats.skew(views, axis=(1, 2))
+        with warnings.catch_warnings():
+            # handle cases with mono-valued data
+            warnings.simplefilter('ignore', category=RuntimeWarning)
+            skews = scipy.stats.skew(views, axis=(1, 2))
 
         # Center and clip the skew values
         skew_thresh = calculate_mean_within_stddev_window(skews, skew_stddev)
@@ -452,7 +455,7 @@ def filter_candidates_to_ranges(
         skews = normalize_skew(skews, skew_thresh)
 
         # Calculate the largest contiguous island of non-zeros
-        skews = (skews > 0).astype(np.uint8)
+        skews = (skews > 0).astype(np.uint16)
         islands = get_islands(skews)
         area = float(max([val.sum() for val in islands]))
         area /= len(skews)
@@ -555,7 +558,7 @@ def normalize_skew(skews, skew_thresh):
 
     with warnings.catch_warnings():
         warnings.simplefilter('ignore', category=RuntimeWarning)
-        skews /= skews.max()
+        skews /= np.nanmax(skews)
 
     skews = np.nan_to_num(skews, nan=0.0, posinf=0.0, neginf=-0.0)
 
@@ -564,8 +567,8 @@ def normalize_skew(skews, skew_thresh):
 
 def calculate_mean_within_stddev_window(values, window):
     # Calculate the average skew within X standard deviations (temperature scaling)
-    values_mean = np.mean(values)
-    values_std = np.std(values)
+    values_mean = np.nanmean(values)
+    values_std = np.nanstd(values)
     values_flags = np.abs(values - values_mean) <= (values_std * window)
     values_mean_windowed = values[values_flags].mean()
     return values_mean_windowed
@@ -585,11 +588,14 @@ def tighten_ranges(
         # Extract the candidate window of the STFT
         candidate = stft_db[:, start:stop]
 
-        # Create a vertical (frequency) sliding window of Numpy views
+        # Create a horizontal (time) sliding window of Numpy views
         views = np.lib.stride_tricks.sliding_window_view(candidate, (candidate.shape[0], window))[
             0, ::stride_
         ]
-        skews = scipy.stats.skew(views, axis=(1, 2))
+        with warnings.catch_warnings():
+            # handle cases with mono-valued data
+            warnings.simplefilter('ignore', category=RuntimeWarning)
+            skews = scipy.stats.skew(views, axis=(1, 2))
 
         # Center and clip the skew values
         skew_thresh = calculate_mean_within_stddev_window(skews, skew_stddev)
@@ -597,7 +603,7 @@ def tighten_ranges(
 
         # Calculate the largest contiguous island of non-zeros
         skew_flags = skews > 0
-        skews = skew_flags.astype(np.uint8)
+        skews = skew_flags.astype(np.uint16)
         islands = get_islands(skews)
         islands = [(index + 1) * val for index, val in enumerate(islands)]
         island = np.hstack(islands)
@@ -1212,14 +1218,15 @@ def find_contour_and_peak(
         # (note that these were computed prior to CDF weighting)
         threshold = peak_db - threshold_std * peak_db_std
 
-    # pad left and right edges to handle signal that extends beyond segment edge
-    segment_pad = np.pad(segment, ((0,0),(1,1)))
+    # pad all edges to handle signal that butts up against segment edges
+    segment_pad = np.pad(segment, ((2,2),(2,2)))
     contours = measure.find_contours(
         segment_pad, level=threshold, fully_connected='high', positive_orientation='high'
     )
     # remove padding in output contour
     for contour in contours:
-        contour[:,1] -= 1
+        contour[:,0] -= 2
+        contour[:,1] -= 2
 
     # Display the image and plot all contours found
     if output_path:
@@ -1249,6 +1256,11 @@ def find_contour_and_peak(
 
             contour_ = np.vstack((y, x), dtype=contour.dtype).T
             polygon_ = Polygon(contour).convex_hull
+
+            # Add small buffer to smoothed contour be sure to include maximum value location.
+            polygon = Polygon(contour).buffer(1.0)
+            xx, yy = polygon.exterior.coords.xy
+            contour_ = np.vstack((xx, yy)).T
             assert idx not in counter
             counter[idx] = (found, polygon_)
 
@@ -1299,13 +1311,16 @@ def calculate_harmonic_and_echo_flags(
     write_contour_debug_image(negative_, index, 7, 'negative', output_path=output_path)
 
     negative_skew = scipy.stats.skew(original[np.logical_and(nonzeros, negative)])
-    harmonic_skew = scipy.stats.skew(original[np.logical_and(nonzeros, harmonic)]) - negative_skew
-    if echo.any():
-        echo_skew = (
-            scipy.stats.skew(original[np.logical_and(np.logical_and(nonzeros, echo), ~harmonic)])
-            - negative_skew
-        )
-    else:
+    with warnings.catch_warnings():
+        # allow for nan outputs in cases of empty or mono-valued selections
+        warnings.simplefilter('ignore', category=RuntimeWarning)
+        selection = np.logical_and(nonzeros, harmonic)
+        harmonic_skew = scipy.stats.skew(original[selection]) - negative_skew
+        selection = np.logical_and(np.logical_and(nonzeros, echo), ~harmonic)
+        echo_skew = scipy.stats.skew(original[selection]) - negative_skew
+    if np.isnan(harmonic_skew):
+        harmonic_skew = -np.inf
+    if np.isnan(echo_skew):
         echo_skew = -np.inf
 
     skew_thresh = np.abs(negative_skew * 0.1)
