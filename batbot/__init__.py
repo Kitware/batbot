@@ -67,6 +67,7 @@ def pipeline(
     fast_mode=False,
     force_overwrite=False,
     quiet=False,
+    debug=False,
 ):
     """
     Run the ML pipeline on a given WAV filepath and return the classification results
@@ -105,6 +106,7 @@ def pipeline(
                                                                                   fast_mode=fast_mode,
                                                                                   force_overwrite=force_overwrite,
                                                                                   quiet=quiet,
+                                                                                  debug=debug
                                                                                   )
 
     return output_paths, compressed_paths, metadata_path
@@ -135,7 +137,7 @@ def pipeline_multi_wrapper(
     else:
         out_file_stems = [None]*len(filepaths)
 
-    outputs = {'output_paths': [], 'compressed_paths': [], 'metadata_paths': []}
+    outputs = {'output_paths': [], 'compressed_paths': [], 'metadata_paths': [], 'failed_files': []}
     # print(filepaths, out_file_stems)
     if tqdm_lock is not None:
         tqdm.set_lock(tqdm_lock)
@@ -155,7 +157,7 @@ def pipeline_multi_wrapper(
             outputs['compressed_paths'].extend(compressed_paths)
             outputs['metadata_paths'].append(metadata_path)
         except:
-            print('WARNING: Pipeline failed on input file {}'.format(in_file))
+            outputs['failed_files'].append(str(in_file))
             # raise
 
     return tuple(outputs.values())
@@ -186,7 +188,7 @@ def parallel_pipeline(
 
     num_workers = min(len(in_file_chunks), num_workers)
 
-    outputs = {'output_paths': [], 'compressed_paths': [], 'metadata_paths': []}
+    outputs = {'output_paths': [], 'compressed_paths': [], 'metadata_paths': [], 'failed_files': []}
 
     lock_manager = Manager()
     tqdm_lock = lock_manager.Lock()
@@ -205,10 +207,11 @@ def parallel_pipeline(
                        for index, (file_chunk, out_stem_chunk) in enumerate(zip(in_file_chunks, out_stem_chunks))]
 
             for future in concurrent.futures.as_completed(futures):
-                output_paths, compressed_paths, metadata_path = future.result()
+                output_paths, compressed_paths, metadata_path, failed_files = future.result()
                 outputs['output_paths'].extend(output_paths)
                 outputs['compressed_paths'].extend(compressed_paths)
                 outputs['metadata_paths'].extend(metadata_path)
+                outputs['failed_files'].extend(failed_files)
                 progress.update(1)
     
     return tuple(outputs.values())
