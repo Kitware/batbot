@@ -276,7 +276,8 @@ def load_stft(
     # Convert the complex power (amplitude + phase) into amplitude (decibels)
     # Do not threshold the data - threshold will be applied later
     # stft_db = librosa.power_to_db(np.abs(stft) ** 2, ref=np.max, top_db=np.inf) # OLD method, cuts off lower values
-    stft_db = 10 * np.log10(np.square(np.abs(stft)))
+    abs_sq_stft = np.square(np.abs(stft))
+    stft_db = 10 * np.log10(abs_sq_stft / abs_sq_stft.max() + 1e-20)
     # Retrieve time vector in seconds corresponding to STFT
     time_vec = librosa.frames_to_time(
         range(stft_db.shape[1]), sr=sr, hop_length=hop_length, n_fft=n_fft
