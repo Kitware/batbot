@@ -1823,6 +1823,8 @@ def compute_wrapper(
 
     output_paths = []
     compressed_paths = []
+    mask_paths = []
+    masked_paths = []
     if not fast_mode:
         datas = [
             (output_paths, 'jpg', stft_db),
@@ -1833,6 +1835,24 @@ def compute_wrapper(
         datas += [
             (compressed_paths, 'compressed.jpg', segments['stft_db']),
         ]
+
+    # Create masked image
+    weights = segments['costs'].copy()
+    weights[weights < weights.mean()] = 0
+    weights[weights > 0] = weights.max()
+    weights = weights.astype(np.float32)
+    kernel = 11
+    weights = cv2.GaussianBlur(
+        weights, (kernel, kernel), sigmaX=4, sigmaY=4, borderType=cv2.BORDER_DEFAULT
+    )
+    weights /= weights.max()
+    masked = segments['stft_db'] * weights
+    masked = normalize_stft(masked, None, np.uint8)
+
+    datas += [
+        (mask_paths, 'mask.jpg', segments['costs']),
+        (masked_paths, 'masked.jpg', masked),
+    ]
 
     for accumulator, tag, data in datas:
         if data.dtype != np.uint8:
@@ -1863,6 +1883,8 @@ def compute_wrapper(
         'spectrogram': {
             'uncompressed.path': output_paths,
             'compressed.path': compressed_paths,
+            'mask.path': mask_paths,
+            'masked.path': masked_paths,
         },
         'global_threshold.amp': int(round(255.0 * (global_threshold / max_value))),
         'sr.hz': int(sr),
@@ -1886,6 +1908,8 @@ def compute_wrapper(
             'width.px': segments['stft_db'].shape[1],
             'height.px': segments['stft_db'].shape[0],
         }
+    metadata['size']['mask'] = metadata['size']['compressed']
+    metadata['size']['masked'] = metadata['size']['compressed']
 
     metadata_path = f'{out_file_stem}.metadata.json'
     with open(metadata_path, 'w') as metafile:
