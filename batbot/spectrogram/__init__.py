@@ -27,7 +27,7 @@ from skimage import draw, measure
 
 from batbot import log
 
-lp = LineProfiler()
+# lp = LineProfiler()
 
 
 FREQ_MIN = 5e3
