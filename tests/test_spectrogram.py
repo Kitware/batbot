@@ -6,4 +6,6 @@ def test_spectrogram_compute():
 
     wav_filepath = abspath(join('examples', 'example2.wav'))
     output_folder = './output'
-    output_paths, metadata_path, metadata = compute(wav_filepath, output_folder=output_folder)
+    output_paths, compressed_paths, metadata_path, metadata = compute(
+        wav_filepath, output_folder=output_folder
+    )
