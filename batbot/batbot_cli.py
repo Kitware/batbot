@@ -156,8 +156,8 @@ def preprocess(
     cleanup,
     no_file_structure,
 ):
-    """Generate compressed spectrogram images for wav files into the current working directory.
-    Takes one or more space separated arguments of filepaths to process. If given a directory name,
+    """Generate compressed spectrogram images for input wav files into the same or a specified output directory.
+    Takes one or more space separated arguments of filepaths to process. If given a directory name argument,
     will recursively search through the directory and all subfolders to find all contained *.wav files.
     Alternatively, the argument can be given as a string using wildcard ** for folders and/or * in filenames
     (if ** wildcard is used, will recursively search through all subfolders).
