@@ -165,7 +165,6 @@ def pipeline_multi_wrapper(
             outputs['metadata_paths'].append(metadata_path)
         except Exception as e:
             outputs['failed_files'].append((str(in_file), e))
-            # raise
 
     return tuple(outputs.values())
 
@@ -286,8 +285,6 @@ def example():
     TEST_WAV_HASH = '391efce5433d1057caddb4ce07b9712c523d6a815e4ee9e64b62973569982925'  # NOQA
 
     wav_filepath = join(PWD, 'examples', 'example1.wav')
-    # wav_filepath = join(PWD, 'examples', 'extras', '3517_NE_20220622_220344_814.wav')
-    # wav_filepath = join(PWD, 'examples', 'extras', 'p33_g67260_f29842117.wav')
 
     if not exists(wav_filepath):
         wav_filepath = pooch.retrieve(
