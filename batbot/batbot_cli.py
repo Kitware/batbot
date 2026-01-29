@@ -3,6 +3,7 @@
 CLI for BatBot
 """
 import json
+import pprint
 import warnings
 from glob import glob
 from os import getcwd, makedirs, remove
@@ -24,8 +25,6 @@ from tqdm import tqdm
 
 import batbot
 from batbot import log
-
-# warnings.filterwarnings("error")
 
 
 def pipeline_filepath_validator(ctx, param, value):
@@ -273,8 +272,6 @@ def preprocess(
         ]
         data['files to be deleted in cleanup'] = list(extra_files)
         if output_json is None:
-            import pprint
-
             pprint.pp(data)
         else:
             with open(output_json, 'w') as outfile:
@@ -327,7 +324,6 @@ def preprocess(
             except Exception as e:
                 warnings.warn('WARNING: Pipeline failed for file {}'.format(file))
                 data['failed_files'].append((str(file), e))
-            #     raise
     else:
         # Parallel execution.
         # shuffle input and output paths
@@ -365,8 +361,6 @@ def preprocess(
         data['failed_files'].extend(failed_files)
 
     if output_json is None:
-        import pprint
-
         print('\nFull spectrogram output paths:')
         pprint.pp(sorted(data['output_path']))
         print('\nCompressed spectrogram output paths:')
