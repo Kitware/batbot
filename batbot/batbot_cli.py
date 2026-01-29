@@ -82,14 +82,11 @@ def pipeline(
     # classifier_thresh,
 ):
 
-    # define out file stem using given output folder
-    out_file_stem = join(output_path, splitext(basename(filepath))[0])
-
     batbot.pipeline(
         filepath,
         # config=config,
         # classifier_thresh=classifier_thresh,
-        out_file_stem=out_file_stem,
+        output_folder=output_path,
     )
 
 

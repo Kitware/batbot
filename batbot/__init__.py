@@ -19,7 +19,7 @@ be run on WAV files.
 
 import concurrent.futures
 from multiprocessing import Manager
-from os.path import basename, exists, join, split, splitext
+from os.path import basename, exists, join, splitext
 from pathlib import Path
 
 import pooch
@@ -64,6 +64,7 @@ def fetch(pull=False, config=None):
 def pipeline(
     filepath,
     out_file_stem=None,
+    output_folder=None,
     fast_mode=False,
     force_overwrite=False,
     quiet=False,
@@ -97,13 +98,12 @@ def pipeline(
     Returns:
         tuple ( float, list ( dict ) ): classifier score, list of time windows
     """
-    if out_file_stem is None:
-        # default to writing directly to working directory
-        out_file_stem = splitext(split(filepath)[-1])[0]
+
     # Generate spectrogram
     output_paths, compressed_paths, metadata_path, metadata = spectrogram.compute(
         filepath,
         out_file_stem=out_file_stem,
+        output_folder=output_folder,
         fast_mode=fast_mode,
         force_overwrite=force_overwrite,
         quiet=quiet,

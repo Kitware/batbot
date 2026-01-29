@@ -5,7 +5,7 @@ import os
 import shutil
 import warnings
 from glob import glob
-from os.path import basename, exists, join, split
+from os.path import basename, exists, join, split, splitext
 
 import cv2
 import librosa
@@ -1384,6 +1384,7 @@ def calculate_harmonic_and_echo_flags(
 def compute_wrapper(
     wav_filepath,
     out_file_stem=None,
+    output_folder=None,
     fast_mode=False,
     force_overwrite=False,
     quiet=False,
@@ -1433,9 +1434,17 @@ def compute_wrapper(
 
     chunksize = int(50e3)
 
-    output_folder = split(out_file_stem)[0]
+    # Default to retrieving the output_folder from out_file_stem
+    if out_file_stem is not None:
+        output_folder = split(out_file_stem)[0]
+    if output_folder is None:
+        output_folder = './output'
+    # If no out_file_stem is given, default to the wav file basename joined with output_folder
+    if out_file_stem is None:
+        out_file_stem = join(output_folder, splitext(basename(wav_filepath))[0])
+
     debug_path = get_debug_path(output_folder, wav_filepath, enabled=debug)
-    # create output folder if it doesn't exist
+    # Create output folder if it doesn't exist
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
         assert exists(output_folder)
