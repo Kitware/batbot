@@ -16,6 +16,7 @@ import numpy as np
 import pyastar2d
 import scipy.stats
 import tqdm
+
 # from line_profiler import LineProfiler
 from scipy import ndimage
 
