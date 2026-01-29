@@ -1432,7 +1432,12 @@ def compute_wrapper(
 
     chunksize = int(50e3)
 
-    debug_path = get_debug_path(split(out_file_stem)[0], wav_filepath, enabled=debug)
+    output_folder = split(out_file_stem)[0]
+    debug_path = get_debug_path(output_folder, wav_filepath, enabled=debug)
+    # create output folder if it doesn't exist
+    if not os.path.exists(output_folder):
+        os.makedirs(output_folder)
+        assert exists(output_folder)
 
     # Load the spectrogram from a WAV file on disk
     with warnings.catch_warnings():
@@ -1867,12 +1872,10 @@ def compute_wrapper(
         'segments': metas,
     }
     if 'stft_db' in segments:
-        metadata['size']['compressed'] = (
-            {
-                'width.px': segments['stft_db'].shape[1],
-                'height.px': segments['stft_db'].shape[0],
-            },
-        )
+        metadata['size']['compressed'] = {
+            'width.px': segments['stft_db'].shape[1],
+            'height.px': segments['stft_db'].shape[0],
+        }
 
     metadata_path = f'{out_file_stem}.metadata.json'
     with open(metadata_path, 'w') as metafile:

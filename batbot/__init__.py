@@ -19,7 +19,7 @@ be run on WAV files.
 
 import concurrent.futures
 from multiprocessing import Manager
-from os.path import exists, join, split, splitext
+from os.path import exists, join, split, splitext, basename
 from pathlib import Path
 
 import pooch
@@ -301,8 +301,9 @@ def example():
 
     import time
 
+    output_stem = join('output', splitext(basename(wav_filepath))[0])
     start_time = time.time()
-    results = pipeline(wav_filepath, fast_mode=False, force_overwrite=True)
+    results = pipeline(wav_filepath, out_file_stem=output_stem, fast_mode=False, force_overwrite=True)
     stop_time = time.time()
     print('Example pipeline completed in {} seconds.'.format(stop_time - start_time))
 

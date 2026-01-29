@@ -2,7 +2,7 @@
 Kitware BatBot
 ==============
 
-|Tests| |Codecov| |Wheel| |Docker| |ReadTheDocs| |Huggingface|
+|Tests| |Codecov| |Wheel| |Docker| |ReadTheDocs|
 
 .. image:: https://github.com/Kitware/batbot/raw/main/assets/logo.png
    :alt: Batbot
@@ -312,7 +312,3 @@ The code base has been formatted by `Black <https://black.readthedocs.io/en/stab
 .. |ReadTheDocs| image:: https://readthedocs.org/projects/batbot/badge/?version=latest
     :target: https://kitware-batbot.readthedocs.io/en/latest/?badge=latest
     :alt: ReadTheDocs
-
-.. |Huggingface| image:: https://img.shields.io/badge/HuggingFace-running-success
-    :target: https://huggingface.co/spaces/Kitware/batbot
-    :alt: Huggingface

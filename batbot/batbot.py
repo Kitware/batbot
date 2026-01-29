@@ -56,16 +56,17 @@ def fetch(config):
     type=str,
     callback=pipeline_filepath_validator,
 )
-@click.option(
-    '--config',
-    help='Which ML model to use for inference',
-    default=None,
-    type=click.Choice(['usgs']),
-)
+# @click.option(
+#     '--config',
+#     help='Which ML model to use for inference',
+#     default=None,
+#     type=click.Choice(['usgs']),
+# )
 @click.option(
     '--output',
-    help='Path to output JSON (if unspecified, results are printed to screen)',
-    default=None,
+    'output_path',
+    help='Path to output folder for the results',
+    default='.',
     type=str,
 )
 # @click.option(
@@ -76,44 +77,20 @@ def fetch(config):
 # )
 def pipeline(
     filepath,
-    config,
-    output,
+    # config,
+    output_path,
     # classifier_thresh,
 ):
-    """
-    Run the BatBot pipeline on an input WAV filepath.  An example output of the JSON
-    can be seen below.
 
-    .. code-block:: javascript
+    # define out file stem using given output folder
+    out_file_stem = join(output_path, splitext(basename(filepath))[0])
 
-            {
-                '/path/to/file.wav': {
-                    'classifier': 0.5,
-                }
-            }
-    """
-    if config is not None:
-        config = config.strip().lower()
-    # classifier_thresh /= 100.0
-
-    score = batbot.pipeline(
+    batbot.pipeline(
         filepath,
-        config=config,
+        # config=config,
         # classifier_thresh=classifier_thresh,
+        out_file_stem=out_file_stem,
     )
-
-    data = {
-        filepath: {
-            'classifier': score,
-        }
-    }
-
-    log.debug('Outputting results...')
-    if output:
-        with open(output, 'w') as outfile:
-            json.dump(data, outfile, indent=4)
-    else:
-        print(data)
 
 
 @click.command('preprocess')
