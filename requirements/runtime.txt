@@ -8,9 +8,8 @@ numpy
 opencv-python-headless
 Pillow
 pooch
-pyastar2d @ git+https://github.com/bluemellophone/batbot-pyastar2d@master
+pyastar2d>=1.1.1
 rich
 scikit-image
 shapely
-sphinx-click
 tqdm
