@@ -309,5 +309,5 @@ The code base has been formatted by `Black <https://black.readthedocs.io/en/stab
     :alt: Docker
 
 .. |ReadTheDocs| image:: https://readthedocs.org/projects/batbot/badge/?version=latest
-    :target: https://kitware-batbot.readthedocs.io/en/latest/?badge=latest
+    :target: https://batbot.readthedocs.io/en/latest/?badge=latest
     :alt: ReadTheDocs
