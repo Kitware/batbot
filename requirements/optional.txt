@@ -20,8 +20,6 @@ pyupgrade
 pyyaml
 rstcheck
 rstcheck[sphinx]
-Sphinx>=5,<6
-sphinx_rtd_theme
 # torch
 # torchvision
 xdoctest

@@ -8,7 +8,7 @@ models that have been pretrained for inference in a production environment.
 .. toctree::
    :maxdepth: 3
 
-.. click:: batbot.batbot:cli
+.. click:: batbot.batbot_cli:cli
    :prog: batbot
    :nested: full
 
