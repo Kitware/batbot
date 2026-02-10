@@ -158,14 +158,14 @@ def preprocess(
 ):
     """Generate compressed spectrogram images for input wav files into the same or a specified output directory.
     Takes one or more space separated arguments of filepaths to process. If given a directory name argument,
-    will recursively search through the directory and all subfolders to find all contained \*.wav files.
-    Alternatively, the argument can be given as a string using wildcard \** for folders and/or \* in filenames
-    (if \** wildcard is used, will recursively search through all subfolders).
+    will recursively search through the directory and all subfolders to find all contained \\*.wav files.
+    Alternatively, the argument can be given as a string using wildcard \\** for folders and/or \\* in filenames
+    (if \\** wildcard is used, will recursively search through all subfolders).
 
     \b
     Examples:
         batbot preprocess ../data -o ./tmp
-        batbot preprocess "../data/\**/\*.wav"
+        batbot preprocess "../data/\\**/\\*.wav"
         batbot preprocess ../data -o ./tmp -n 32
         batbot preprocess ../data -o ./tmp -n 32 -fm
         batbot preprocess ../data -o ./tmp -f --dry-run --output-json dry_run.json
