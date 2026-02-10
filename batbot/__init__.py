@@ -33,7 +33,7 @@ QUIET = not utils.VERBOSE
 
 from batbot import spectrogram  # NOQA
 
-VERSION = '0.1.0'
+VERSION = '0.1.2'
 version = VERSION
 __version__ = VERSION
 
