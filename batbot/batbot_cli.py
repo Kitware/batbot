@@ -319,8 +319,7 @@ def preprocess(
                 )
                 data['output_path'].extend(output_paths)
                 data['compressed_path'].extend(compressed_paths)
-                if process_metadata:
-                    data['metadata_path'].append(metadata_path)
+                data['metadata_path'].append(metadata_path)
             except Exception as e:
                 warnings.warn('WARNING: Pipeline failed for file {}'.format(file))
                 data['failed_files'].append((str(file), e))
@@ -356,8 +355,7 @@ def preprocess(
         )
         data['output_path'].extend(output_paths)
         data['compressed_path'].extend(compressed_paths)
-        if process_metadata:
-            data['metadata_path'].extend(metadata_paths)
+        data['metadata_path'].extend(metadata_paths)
         data['failed_files'].extend(failed_files)
 
     if output_json is None:
@@ -365,9 +363,8 @@ def preprocess(
         pprint.pp(sorted(data['output_path']))
         print('\nCompressed spectrogram output paths:')
         pprint.pp(sorted(data['compressed_path']))
-        if process_metadata:
-            print('\nProcessed metadata paths:')
-            pprint.pp(sorted(data['metadata_path']))
+        print('\nProcessed metadata paths:')
+        pprint.pp(sorted(data['metadata_path']))
         print('\nFiles skipped due to failure, and corresponding exceptions:')
         pprint.pp(sorted(data['failed_files']))
     else:
