@@ -1760,9 +1760,15 @@ def compute_wrapper(
             segments['stft_db'].append(stft_db[:, start + trim_begin : start + trim_end])
             segment_waveplot = waveplot[:, start + trim_begin : start + trim_end]
             segments['waveplot'].append(segment_waveplot)
-            # convert to JSON serializable datatype and add to metadata if segment_waves is True
             if segment_waves:
                 segment_waveplot = waveform_ms[:, start + trim_begin : start + trim_end]
+                # convert into some JSON serializable
+                segment_waveplot = [
+                    [
+                        round(float(val), 3) for val in row
+                    ]
+                    for row in segment_waveplot
+                ]
                 metadata_waveplot = {
                     "waveplot": segment_waveplot,
                 }
