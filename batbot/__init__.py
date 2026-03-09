@@ -69,6 +69,7 @@ def pipeline(
     force_overwrite=False,
     quiet=False,
     debug=False,
+    segment_waves=False,
 ):
     """
     Run the ML pipeline on a given WAV filepath and return the classification results
@@ -108,6 +109,7 @@ def pipeline(
         force_overwrite=force_overwrite,
         quiet=quiet,
         debug=debug,
+        segment_waves=segment_waves,
     )
 
     return output_paths, compressed_paths, metadata_path
