@@ -260,9 +260,7 @@ def get_waveform_data_ms(waveform, sample_rate, hop_length=16):
     # (samples / sample_rate) = seconds
     # (seconds * 1000) = milliseconds
     times_ms = (np.arange(len(bin_mins)) * hop_length) / sample_rate * 1000
-    times_ms = np.around(times_ms).astype(float)
-    bin_mins = np.around(bin_mins).astype(float)
-    bin_maxs = np.around(bin_maxs).astype(float)
+    # Keep full precision for min/max (do not round to int; waveform is typically in [-1, 1])
     return [(float(t), float(mn), float(mx)) for t, mn, mx in zip(times_ms, bin_mins, bin_maxs)]
 
 
@@ -1761,10 +1759,15 @@ def compute_wrapper(
             segments['waveplot'].append(segment_waveplot)
             if segment_waves:
                 segment_waveplot = waveform_ms[start + trim_begin : start + trim_end]
-                # convert into JSON-serializable list of [time_ms, min_val, max_val]
+                segment_start_ms = (start + trim_begin) * x_step_ms
+                # Segment-relative time (0 at segment start) and enough precision for amplitude
                 segment_waveplot = [
-                    [round(val, 3) for val in row]
-                    for row in segment_waveplot
+                    [
+                        round(float(t_ms) - segment_start_ms, 3),  # time ms relative to segment
+                        round(float(mn), 6),  # min amplitude (avoid rounding to 0)
+                        round(float(mx), 6),  # max amplitude
+                    ]
+                    for t_ms, mn, mx in segment_waveplot
                 ]
                 metadata_waveplot = {
                     "waveplot": segment_waveplot,
