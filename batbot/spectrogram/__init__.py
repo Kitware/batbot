@@ -1406,6 +1406,7 @@ def compute_wrapper(
     bitdepth=16,
     mask_secondary_effects=False,
     debug=False,
+    segment_waves=False,
     **kwargs,
 ):
     """
@@ -1733,7 +1734,13 @@ def compute_wrapper(
             trim_end = max(0, min(segment.shape[1], call_end[1] + buffer_pix))
 
             segments['stft_db'].append(stft_db[:, start + trim_begin : start + trim_end])
-            segments['waveplot'].append(waveplot[:, start + trim_begin : start + trim_end])
+            segment_waveplot = waveplot[:, start + trim_begin : start + trim_end]
+            metadata_waveplot = {
+                "waveplot": segment_waveplot,
+            }
+            if segment_waves:
+                metadata.update(metadata_waveplot)
+            segments['waveplot'].append(segment_waveplot)
             segments['costs'].append(costs[:, trim_begin:trim_end])
             if debug_path:
                 segments['canvas'].append(canvas[:, trim_begin:trim_end])
