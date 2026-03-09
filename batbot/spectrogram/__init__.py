@@ -245,7 +245,8 @@ def generate_waveplot(
 
 def get_waveform_data_ms(waveform, sample_rate, hop_length=16):
     """
-    Returns time in milliseconds and the raw min/max amplitude values.
+    Returns a list of (time_ms, min_val, max_val) for each hop, suitable for
+    drawing a waveform plot in external tools (e.g. JSON-serializable).
     """
     # 1. Calculate min/max envelopes
     temp = np.pad(waveform, hop_length // 2, mode='edge')
@@ -259,12 +260,10 @@ def get_waveform_data_ms(waveform, sample_rate, hop_length=16):
     # (samples / sample_rate) = seconds
     # (seconds * 1000) = milliseconds
     times_ms = (np.arange(len(bin_mins)) * hop_length) / sample_rate * 1000
-    # convert into an array
     times_ms = np.around(times_ms).astype(float)
     bin_mins = np.around(bin_mins).astype(float)
     bin_maxs = np.around(bin_maxs).astype(float)
-    output_array = np.stack((times_ms, bin_mins, bin_maxs), axis=-1)
-    return output_array
+    return [(float(t), float(mn), float(mx)) for t, mn, mx in zip(times_ms, bin_mins, bin_maxs)]
 
 
 # @lp
@@ -1761,12 +1760,10 @@ def compute_wrapper(
             segment_waveplot = waveplot[:, start + trim_begin : start + trim_end]
             segments['waveplot'].append(segment_waveplot)
             if segment_waves:
-                segment_waveplot = waveform_ms[:, start + trim_begin : start + trim_end]
-                # convert into some JSON serializable
+                segment_waveplot = waveform_ms[start + trim_begin : start + trim_end]
+                # convert into JSON-serializable list of [time_ms, min_val, max_val]
                 segment_waveplot = [
-                    [
-                        round(float(val), 3) for val in row
-                    ]
+                    [round(val, 3) for val in row]
                     for row in segment_waveplot
                 ]
                 metadata_waveplot = {
