@@ -243,6 +243,25 @@ def generate_waveplot(
 
     return waveplot
 
+def get_waveform_data_ms(waveform, sample_rate, hop_length=16):
+    """
+    Returns time in milliseconds and the raw min/max amplitude values.
+    """
+    # 1. Calculate min/max envelopes
+    temp = np.pad(waveform, hop_length // 2, mode='edge')
+    views = np.lib.stride_tricks.sliding_window_view(temp, (hop_length,))[::hop_length]
+    
+    bin_mins = np.min(views, axis=1)
+    bin_maxs = np.max(views, axis=1)
+    
+    # 2. Calculate time in milliseconds
+    # (index * hop_length) = total samples
+    # (samples / sample_rate) = seconds
+    # (seconds * 1000) = milliseconds
+    times_ms = (np.arange(len(bin_mins)) * hop_length) / sample_rate * 1000
+    
+    return times_ms, bin_mins, bin_maxs
+
 
 # @lp
 def load_stft(
@@ -306,6 +325,7 @@ def load_stft(
     else:
         waveplot = generate_waveplot(waveform, stft_db, hop_length=hop_length)
 
+    waveform_ms = get_waveform_data_ms(waveform, sample_rate=sr, hop_length=hop_length) 
     # Estimate maximum frequency band containing data based on original sample rate
     # Only data up to this maximum band should be used when computing statistics
     max_band_idx = min((int(np.where(bands < orig_sr / 2.02)[0][-1]), len(bands) - 1))
@@ -313,7 +333,7 @@ def load_stft(
     if max_band_idx < len(bands) - 1:
         stft_db[max_band_idx + 1 :, :] = np.min(stft_db[: max_band_idx + 1, :])
 
-    return stft_db, waveplot, sr, bands, duration, min_index, time_vec, orig_sr, max_band_idx
+    return stft_db, waveplot, sr, bands, duration, min_index, time_vec, orig_sr, max_band_idx, waveform_ms
 
 
 # @lp
@@ -1468,7 +1488,7 @@ def compute_wrapper(
     with warnings.catch_warnings():
         warnings.simplefilter('ignore', category=DeprecationWarning)
         # ignore warning due to aifc deprecation
-        stft_db, waveplot, sr, bands, duration, freq_offset, time_vec, orig_sr, max_band_idx = (
+        stft_db, waveplot, sr, bands, duration, freq_offset, time_vec, orig_sr, max_band_idx, waveform_ms = (
             load_stft(wav_filepath, fast_mode=fast_mode)
         )
 
@@ -1738,7 +1758,7 @@ def compute_wrapper(
             segments['waveplot'].append(segment_waveplot)
             # convert to JSON serializable datatype and add to metadata if segment_waves is True
             if segment_waves:
-                segment_waveplot = segment_waveplot.tolist()
+                segment_waveplot = waveform_ms[:, start + trim_begin : start + trim_end]
                 metadata_waveplot = {
                     "waveplot": segment_waveplot,
                 }
