@@ -243,24 +243,31 @@ def generate_waveplot(
 
     return waveplot
 
-def get_waveform_data_ms(waveform, sample_rate, hop_length=16):
+def get_waveform_data_ms(waveform, sample_rate, hop_length=16, n_fft=512):
     """
-    Returns a list of (time_ms, min_val, max_val) for each hop, suitable for
-    drawing a waveform plot in external tools (e.g. JSON-serializable).
+    Same envelope data as generate_waveplot, as raw numbers (no plot).
+
+    Returns a list of (time_ms, min_val, max_val) for each STFT-aligned hop:
+    - time_ms: time in milliseconds (same time base as STFT / time_vec).
+    - min_val: minimum amplitude in the hop (lowest sample in that window).
+    - max_val: maximum amplitude in the hop (highest sample in that window).
+
+    Amplitude units are the same as the waveform: typically normalized in [-1, 1]
+    when using librosa.load (same as the values generate_waveplot uses before
+    scaling to pixel coordinates).
     """
-    # 1. Calculate min/max envelopes
+    # Same min/max envelope as generate_waveplot (identical windowing)
     temp = np.pad(waveform, hop_length // 2, mode='edge')
     views = np.lib.stride_tricks.sliding_window_view(temp, (hop_length,))[::hop_length]
-    
     bin_mins = np.min(views, axis=1)
     bin_maxs = np.max(views, axis=1)
-    
-    # 2. Calculate time in milliseconds
-    # (index * hop_length) = total samples
-    # (samples / sample_rate) = seconds
-    # (seconds * 1000) = milliseconds
-    times_ms = (np.arange(len(bin_mins)) * hop_length) / sample_rate * 1000
-    # Keep full precision for min/max (do not round to int; waveform is typically in [-1, 1])
+
+    # Time in ms, aligned with STFT frames (librosa frames_to_time * 1000)
+    n_frames = len(bin_mins)
+    times_s = librosa.frames_to_time(
+        np.arange(n_frames), sr=sample_rate, hop_length=hop_length, n_fft=n_fft
+    )
+    times_ms = (times_s * 1000).astype(float)
     return [(float(t), float(mn), float(mx)) for t, mn, mx in zip(times_ms, bin_mins, bin_maxs)]
 
 
@@ -326,7 +333,9 @@ def load_stft(
     else:
         waveplot = generate_waveplot(waveform, stft_db, hop_length=hop_length)
 
-    waveform_ms = get_waveform_data_ms(waveform, sample_rate=sr, hop_length=hop_length) 
+    waveform_ms = get_waveform_data_ms(
+        waveform, sample_rate=sr, hop_length=hop_length, n_fft=n_fft
+    ) 
     # Estimate maximum frequency band containing data based on original sample rate
     # Only data up to this maximum band should be used when computing statistics
     max_band_idx = min((int(np.where(bands < orig_sr / 2.02)[0][-1]), len(bands) - 1))
@@ -1760,12 +1769,12 @@ def compute_wrapper(
             if segment_waves:
                 segment_waveplot = waveform_ms[start + trim_begin : start + trim_end]
                 segment_start_ms = (start + trim_begin) * x_step_ms
-                # Segment-relative time (0 at segment start) and enough precision for amplitude
+                # [time_ms, min_val, max_val]: time in ms (0 at segment start), amplitude in [-1, 1]
                 segment_waveplot = [
                     [
-                        round(float(t_ms) - segment_start_ms, 3),  # time ms relative to segment
-                        round(float(mn), 6),  # min amplitude (avoid rounding to 0)
-                        round(float(mx), 6),  # max amplitude
+                        round(float(t_ms) - segment_start_ms, 3),
+                        round(float(mn), 6),
+                        round(float(mx), 6),
                     ]
                     for t_ms, mn, mx in segment_waveplot
                 ]
