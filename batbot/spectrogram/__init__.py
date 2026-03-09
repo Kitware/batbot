@@ -259,8 +259,12 @@ def get_waveform_data_ms(waveform, sample_rate, hop_length=16):
     # (samples / sample_rate) = seconds
     # (seconds * 1000) = milliseconds
     times_ms = (np.arange(len(bin_mins)) * hop_length) / sample_rate * 1000
-    
-    return times_ms, bin_mins, bin_maxs
+    # convert into an array
+    times_ms = np.around(times_ms).astype(float)
+    bin_mins = np.around(bin_mins).astype(float)
+    bin_maxs = np.around(bin_maxs).astype(float)
+    output_array = np.stack((times_ms, bin_mins, bin_maxs), axis=-1)
+    return output_array
 
 
 # @lp
