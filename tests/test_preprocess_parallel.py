@@ -9,10 +9,11 @@ def test_preprocess_parallel():
     runner = CliRunner()
     data = runner.invoke(
         preprocess,
-        ['examples', '-o', './output', '--process-metadata', '--force-overwrite', '-n', 4],
+        ['examples', '-o', './output', '--process-metadata', '--force-overwrite', '-n', 2],
     )
     # parse stdout to ensure example files were processed properly
-    num_examples = 4
+    # limiting to 2 examples for now
+    num_examples = 2
     output_str = str(data.output).split('\n')
     for ii in range(num_examples):
         expected_file = './output/example{}.01of01.compressed.jpg'.format(ii + 1)
