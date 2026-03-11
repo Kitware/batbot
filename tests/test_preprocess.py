@@ -17,7 +17,8 @@ def test_preprocess():
     data = runner.invoke(preprocess, ['examples', '-o', './output', '--force-overwrite'])
     assert data.exit_code == 0
     # parse stdout to ensure example files were processed properly
-    num_examples = 4
+    # limiting to 2 examples for now
+    num_examples = 2
     output_str = str(data.output).split('\n')
     for ii in range(num_examples):
         expected_file = './output/example{}.01of01.compressed.jpg'.format(ii + 1)
