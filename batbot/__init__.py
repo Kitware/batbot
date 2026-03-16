@@ -68,6 +68,7 @@ def pipeline(
     fast_mode=False,
     force_overwrite=False,
     quiet=False,
+    plot_uncompressed_amplitude=False,
     debug=False,
 ):
     """
@@ -107,6 +108,7 @@ def pipeline(
         fast_mode=fast_mode,
         force_overwrite=force_overwrite,
         quiet=quiet,
+        plot_uncompressed_amplitude=plot_uncompressed_amplitude,
         debug=debug,
     )
 
@@ -301,7 +303,7 @@ def example():
     output_stem = join('output', splitext(basename(wav_filepath))[0])
     start_time = time.time()
     results = pipeline(
-        wav_filepath, out_file_stem=output_stem, fast_mode=False, force_overwrite=True
+        wav_filepath, out_file_stem=output_stem, fast_mode=False, force_overwrite=True, plot_uncompressed_amplitude=True,
     )
     stop_time = time.time()
     print('Example pipeline completed in {} seconds.'.format(stop_time - start_time))
