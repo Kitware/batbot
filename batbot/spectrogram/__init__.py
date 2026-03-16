@@ -1115,7 +1115,9 @@ def extract_contour_keypoints(
             'slope/lo[avg].y_px/x_px': float(np.mean(der1[heel_idx:])),
             'slope[box].y_px/x_px': -float((y_[-1] - y_[0]) / (x_[-1] - x_[0] + 1e-10)),
             'slope/hi[box].y_px/x_px': -float((y_[fc_idx] - y_[0]) / (x_[fc_idx] - x_[0] + 1e-10)),
-            'slope/lo[box].y_px/x_px': -float((y_[-1] - y_[fc_idx]) / (x_[-1] - x_[fc_idx] + 1e-10)),
+            'slope/lo[box].y_px/x_px': -float(
+                (y_[-1] - y_[fc_idx]) / (x_[-1] - x_[fc_idx] + 1e-10)
+            ),
         }
 
     return path_, points, slopes
