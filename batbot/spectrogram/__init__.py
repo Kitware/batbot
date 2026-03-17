@@ -280,7 +280,7 @@ def load_stft(
     stft_db = 10 * np.log10(abs_sq_stft / abs_sq_stft.max() + 1e-20)
     # Retrieve time vector in seconds corresponding to STFT
     time_vec = librosa.frames_to_time(
-        range(stft_db.shape[1]), sr=sr, hop_length=hop_length, n_fft=n_fft
+        range(stft_db.shape[1]), sr=sr, hop_length=hop_length, n_fft=win_length
     )
 
     # Remove frequencies that we do not need [FREQ_MIN - FREQ_MAX]
@@ -1113,10 +1113,11 @@ def extract_contour_keypoints(
             'slope/hi[avg].y_px/x_px': float(np.mean(der1[: knee_idx + 1])),
             'slope/mid[avg].y_px/x_px': float(np.mean(der1[knee_idx : heel_idx + 1])),
             'slope/lo[avg].y_px/x_px': float(np.mean(der1[heel_idx:])),
-            'slope[box].y_px/x_px': float(0.5 * (der1[0] + der1[-1])),
-            'slope/hi[box].y_px/x_px': float(0.5 * (der1[0] + der1[knee_idx])),
-            'slope/mid[box].y_px/x_px': float(0.5 * (der1[knee_idx] + der1[heel_idx])),
-            'slope/lo[box].y_px/x_px': float(0.5 * (der1[heel_idx] + der1[-1])),
+            'slope[box].y_px/x_px': -float((y_[-1] - y_[0]) / (x_[-1] - x_[0] + 1e-10)),
+            'slope/hi[box].y_px/x_px': -float((y_[fc_idx] - y_[0]) / (x_[fc_idx] - x_[0] + 1e-10)),
+            'slope/lo[box].y_px/x_px': -float(
+                (y_[-1] - y_[fc_idx]) / (x_[-1] - x_[fc_idx] + 1e-10)
+            ),
         }
 
     return path_, points, slopes
@@ -1405,6 +1406,7 @@ def compute_wrapper(
     annotations=None,
     bitdepth=16,
     mask_secondary_effects=False,
+    plot_uncompressed_amplitude=False,
     debug=False,
     **kwargs,
 ):
@@ -1839,15 +1841,23 @@ def compute_wrapper(
     compressed_paths = []
     mask_paths = []
     masked_paths = []
+    waveplot_compressed_paths = []
+    waveplot_plots = []
     if not fast_mode:
         datas = [
             (output_paths, 'jpg', stft_db),
         ]
-    else:
-        datas = []
+    if plot_uncompressed_amplitude:
+        datas += [
+            (waveplot_plots, 'waveplot.jpg', waveplot),
+        ]
     if 'stft_db' in segments:
         datas += [
             (compressed_paths, 'compressed.jpg', segments['stft_db']),
+        ]
+    if 'waveplot' in segments:
+        datas += [
+            (waveplot_compressed_paths, 'compressed.waveplot.jpg', segments['waveplot']),
         ]
 
     # Create masked image
@@ -1887,6 +1897,8 @@ def compute_wrapper(
         'spectrogram': {
             'uncompressed.path': output_paths,
             'compressed.path': compressed_paths,
+            'waveplot.path': waveplot_plots,
+            'waveplot.compressed.path': waveplot_compressed_paths,
             'mask.path': mask_paths,
             'masked.path': masked_paths,
         },
