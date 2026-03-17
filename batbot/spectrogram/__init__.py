@@ -1841,23 +1841,23 @@ def compute_wrapper(
     compressed_paths = []
     mask_paths = []
     masked_paths = []
+    waveplot_compressed_paths = []
+    waveplot_plots = []
     if not fast_mode:
         datas = [
             (output_paths, 'jpg', stft_db),
         ]
     if plot_uncompressed_amplitude:
         datas += [
-            (output_paths, 'waveplot.jpg', waveplot),
+            (waveplot_plots, 'waveplot.jpg', waveplot),
         ]
-    else:
-        datas = []
     if 'stft_db' in segments:
         datas += [
             (compressed_paths, 'compressed.jpg', segments['stft_db']),
         ]
     if 'waveplot' in segments:
         datas += [
-            (compressed_paths, 'compressed.waveplot.jpg', segments['waveplot']),
+            (waveplot_compressed_paths, 'compressed.waveplot.jpg', segments['waveplot']),
         ]
 
     # Create masked image
@@ -1897,6 +1897,8 @@ def compute_wrapper(
         'spectrogram': {
             'uncompressed.path': output_paths,
             'compressed.path': compressed_paths,
+            'waveplot.path': waveplot_plots,
+            'waveplot.compressed.path': waveplot_compressed_paths,
             'mask.path': mask_paths,
             'masked.path': masked_paths,
         },
