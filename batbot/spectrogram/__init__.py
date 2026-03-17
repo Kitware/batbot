@@ -1851,8 +1851,6 @@ def compute_wrapper(
         datas += [
             (waveplot_plots, 'waveplot.jpg', waveplot),
         ]
-    else:
-        datas = []
     if 'stft_db' in segments:
         datas += [
             (compressed_paths, 'compressed.jpg', segments['stft_db']),
