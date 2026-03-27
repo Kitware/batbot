@@ -290,7 +290,7 @@ def example():
 
     if not exists(wav_filepath):
         wav_filepath = pooch.retrieve(
-            url=f'https://github.com/Kitware/batbot/{TEST_WAV}',
+            url=f'https://raw.githubusercontent.com/Kitware/batbot/main/examples/{TEST_WAV}',
             known_hash=TEST_WAV_HASH,
             progressbar=True,
         )
