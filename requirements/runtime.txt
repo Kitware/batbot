@@ -1,12 +1,8 @@
 click
-cryptography
-cython
 librosa
-line_profiler
 matplotlib
 numpy
 opencv-python-headless
-Pillow
 pooch
 pyastar2d>=1.1.1
 rich
