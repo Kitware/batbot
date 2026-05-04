@@ -1864,7 +1864,7 @@ def compute_wrapper(
             )
 
     # If desired, also generate uncompressed and compressed spectrograms
-    # without reducing the sample rate. These should have identical step
+    # without reducing the sample rate. These should have similar step
     # size in time and frequency
     if include_original_sr:
         with warnings.catch_warnings():
