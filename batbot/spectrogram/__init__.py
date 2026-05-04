@@ -1610,7 +1610,13 @@ def compute_wrapper(
         # Tighten the ranges by looking for substantial right-side skew (use stride for a smaller sampling window)
         extra_buffer_pix = int(max(0.0, (time_buffer_ms - 1.0) / x_step_ms))
         ranges = tighten_ranges(
-            stft_db, ranges, stride, duration, output_path=debug_path, extra_buffer_pix=extra_buffer_pix, quiet=quiet
+            stft_db,
+            ranges,
+            stride,
+            duration,
+            output_path=debug_path,
+            extra_buffer_pix=extra_buffer_pix,
+            quiet=quiet,
         )
         # Merge all range segments into contiguous range blocks
         ranges = merge_ranges(ranges, stft_db.shape[1])
@@ -1904,14 +1910,20 @@ def compute_wrapper(
             ), 'lower frequency bands changed unexpectedly much when using original sample rate'
         else:
             assert all(
-                [np.abs(x - y) / x <= tol for x, y in zip(bands[-len(bands_origsr) :], bands_origsr)]
+                [
+                    np.abs(x - y) / x <= tol
+                    for x, y in zip(bands[-len(bands_origsr) :], bands_origsr)
+                ]
             ), 'lower frequency bands changed unexpectedly much when using original sample rate'
 
         # Create compressed spectrogram using segment start and stop times
         segments_origsr = []
         for segment_meta in metas:
             start = max(0, int(np.round(segment_meta['segment start.ms'] / x_step_ms_origsr)))
-            end = min(stft_db_origsr.shape[1], int(np.round(segment_meta['segment end.ms'] / x_step_ms_origsr)))
+            end = min(
+                stft_db_origsr.shape[1],
+                int(np.round(segment_meta['segment end.ms'] / x_step_ms_origsr)),
+            )
             segments_origsr.append(stft_db_origsr[:, start:end])
         segments['stft_db_origsr'] = np.concatenate(segments_origsr, axis=1)
 
