@@ -604,6 +604,7 @@ def tighten_ranges(
     duration,
     skew_stddev=2.0,
     min_duration_ms=2.0,
+    extra_buffer_pix=0.0,
     output_path='.',
     quiet=False,
 ):
@@ -611,7 +612,7 @@ def tighten_ranges(
 
     stride_ = 2
     window = int(window)
-    buffer = int(round(window / stride_ / 2))
+    buffer = int(round(window / stride_ / 2)) + extra_buffer_pix
 
     ranges_ = []
     for index, (start, stop) in tqdm.tqdm(list(enumerate(ranges)), disable=quiet):
@@ -1422,6 +1423,7 @@ def compute_wrapper(
     mask_secondary_effects=False,
     plot_uncompressed_amplitude=False,
     include_original_sr=False,
+    time_buffer_ms=1.0,
     debug=False,
     **kwargs,
 ):
@@ -1606,9 +1608,12 @@ def compute_wrapper(
     else:
 
         # Tighten the ranges by looking for substantial right-side skew (use stride for a smaller sampling window)
+        extra_buffer_pix = int(max(0.0, (time_buffer_ms - 1.0) / x_step_ms))
         ranges = tighten_ranges(
-            stft_db, ranges, stride, duration, output_path=debug_path, quiet=quiet
+            stft_db, ranges, stride, duration, output_path=debug_path, extra_buffer_pix=extra_buffer_pix, quiet=quiet
         )
+        # Merge all range segments into contiguous range blocks
+        ranges = merge_ranges(ranges, stft_db.shape[1])
 
         # Extract chirp metrics and metadata
         segments = {
@@ -1744,7 +1749,7 @@ def compute_wrapper(
             metadata.update(slopes)
 
             # Trim segment around the bat call with a small buffer
-            buffer_ms = 1.0
+            buffer_ms = time_buffer_ms
             buffer_pix = int(round(buffer_ms / x_step_ms))
             trim_begin = max(0, min(segment.shape[1], call_begin[1] - buffer_pix))
             trim_end = max(0, min(segment.shape[1], call_end[1] + buffer_pix))
@@ -1893,15 +1898,20 @@ def compute_wrapper(
         assert (
             np.abs(y_step_freq - y_step_freq_origsr) / y_step_freq <= tol
         ), 'frequency step changed unexpectedly much when using original sample rate'
-        assert all(
-            [np.abs(x - y) / x <= tol for x, y in zip(bands, bands_origsr[-len(bands) :])]
-        ), 'lower frequency bands changed unexpectedly much when using original sample rate'
+        if orig_sr >= sr:
+            assert all(
+                [np.abs(x - y) / x <= tol for x, y in zip(bands, bands_origsr[-len(bands) :])]
+            ), 'lower frequency bands changed unexpectedly much when using original sample rate'
+        else:
+            assert all(
+                [np.abs(x - y) / x <= tol for x, y in zip(bands[-len(bands_origsr) :], bands_origsr)]
+            ), 'lower frequency bands changed unexpectedly much when using original sample rate'
 
         # Create compressed spectrogram using segment start and stop times
         segments_origsr = []
         for segment_meta in metas:
-            start = int(np.round(segment_meta['segment start.ms'] / x_step_ms_origsr))
-            end = int(np.round(segment_meta['segment end.ms'] / x_step_ms_origsr))
+            start = max(0, int(np.round(segment_meta['segment start.ms'] / x_step_ms_origsr)))
+            end = min(stft_db_origsr.shape[1], int(np.round(segment_meta['segment end.ms'] / x_step_ms_origsr)))
             segments_origsr.append(stft_db_origsr[:, start:end])
         segments['stft_db_origsr'] = np.concatenate(segments_origsr, axis=1)
 
@@ -1990,13 +2000,19 @@ def compute_wrapper(
                 (segments['stft_db_origsr'].shape[1], masked.shape[0]),
                 interpolation=cv2.INTER_LINEAR,
             )
-            # Pad mask and masked to account for extra higher frequencies
-            mask_interp = np.pad(
-                mask_interp, ((stft_db_origsr.shape[0] - mask_interp.shape[0], 0), (0, 0))
-            )
-            masked_interp = np.pad(
-                masked_interp, ((stft_db_origsr.shape[0] - masked_interp.shape[0], 0), (0, 0))
-            )
+            if orig_sr >= sr:
+                # Pad mask and masked to account for extra higher frequencies
+                mask_interp = np.pad(
+                    mask_interp, ((stft_db_origsr.shape[0] - mask_interp.shape[0], 0), (0, 0))
+                )
+                masked_interp = np.pad(
+                    masked_interp, ((stft_db_origsr.shape[0] - masked_interp.shape[0], 0), (0, 0))
+                )
+            else:
+                # remove higher frequencies from mask which aren't present with original sr
+                mask_interp = mask_interp[mask_interp.shape[0] - stft_db_origsr.shape[0] :]
+                masked_interp = masked_interp[masked_interp.shape[0] - stft_db_origsr.shape[0] :]
+                pass
             datas += [
                 (mask_paths, 'mask.origsr.jpg', mask_interp),
                 (masked_paths, 'masked.origsr.jpg', masked_interp),

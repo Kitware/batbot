@@ -70,6 +70,7 @@ def pipeline(
     quiet=False,
     plot_uncompressed_amplitude=False,
     include_original_sr=False,
+    time_buffer_ms=1.0,
     debug=False,
 ):
     """
@@ -111,6 +112,7 @@ def pipeline(
         quiet=quiet,
         plot_uncompressed_amplitude=plot_uncompressed_amplitude,
         include_original_sr=include_original_sr,
+        time_buffer_ms=time_buffer_ms,
         debug=debug,
     )
 
@@ -311,6 +313,7 @@ def example():
         force_overwrite=True,
         plot_uncompressed_amplitude=True,
         include_original_sr=True,
+        time_buffer_ms=5.0,
     )
     stop_time = time.time()
     print('Example pipeline completed in {} seconds.'.format(stop_time - start_time))
