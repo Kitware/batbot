@@ -253,6 +253,7 @@ def load_stft(
     win_length=256,
     hop_length=16,
     fast_mode=False,
+    use_original_sr=False,
 ):
     assert exists(wav_filepath)
     log.debug(f'Computing spectrogram on {wav_filepath}')
@@ -265,7 +266,18 @@ def load_stft(
         raise OSError(f'Error loading file: {e}')
 
     # Resample the waveform
-    waveform = librosa.resample(waveform_, orig_sr=orig_sr, target_sr=sr)
+    if not use_original_sr:
+        waveform = librosa.resample(waveform_, orig_sr=orig_sr, target_sr=sr)
+    else:
+        waveform = waveform_
+        # # define a next-power-of-2 factor to increase window and hop length
+        # sr_factor = np.pow(2, np.ceil(np.log2(orig_sr / sr)))
+        sr_factor = orig_sr / sr
+
+        sr *= sr_factor
+        n_fft = int(np.round(n_fft * sr_factor))
+        win_length = int(np.round(win_length * sr_factor))
+        hop_length = int(np.round(hop_length * sr_factor))
 
     # TODO: signal processing: remove DC offset, time window edges of waveform
 
@@ -292,7 +304,7 @@ def load_stft(
         band_min = bands[index] - delta_f / 2.0
         band_max = bands[index] + delta_f / 2.0
         # accept bands with any part of their range within interval [FREQ_MIN, FREQ_MAX]
-        if FREQ_MIN <= band_max and band_min <= FREQ_MAX:
+        if FREQ_MIN <= band_max and (use_original_sr or band_min <= FREQ_MAX):
             goods.append(index)
     min_index = min(goods)
     max_index = max(goods)
@@ -592,6 +604,7 @@ def tighten_ranges(
     duration,
     skew_stddev=2.0,
     min_duration_ms=2.0,
+    extra_buffer_pix=0.0,
     output_path='.',
     quiet=False,
 ):
@@ -599,7 +612,7 @@ def tighten_ranges(
 
     stride_ = 2
     window = int(window)
-    buffer = int(round(window / stride_ / 2))
+    buffer = int(round(window / stride_ / 2)) + extra_buffer_pix
 
     ranges_ = []
     for index, (start, stop) in tqdm.tqdm(list(enumerate(ranges)), disable=quiet):
@@ -1409,6 +1422,8 @@ def compute_wrapper(
     bitdepth=16,
     mask_secondary_effects=False,
     plot_uncompressed_amplitude=False,
+    include_original_sr=False,
+    time_buffer_ms=1.0,
     debug=False,
     **kwargs,
 ):
@@ -1472,7 +1487,7 @@ def compute_wrapper(
         warnings.simplefilter('ignore', category=DeprecationWarning)
         # ignore warning due to aifc deprecation
         stft_db, waveplot, sr, bands, duration, freq_offset, time_vec, orig_sr, max_band_idx = (
-            load_stft(wav_filepath, fast_mode=fast_mode)
+            load_stft(wav_filepath, fast_mode=fast_mode, use_original_sr=False)
         )
 
     # Apply a dynamic range to a fixed dB range
@@ -1593,9 +1608,18 @@ def compute_wrapper(
     else:
 
         # Tighten the ranges by looking for substantial right-side skew (use stride for a smaller sampling window)
+        extra_buffer_pix = int(max(0.0, (time_buffer_ms - 1.0) / x_step_ms))
         ranges = tighten_ranges(
-            stft_db, ranges, stride, duration, output_path=debug_path, quiet=quiet
+            stft_db,
+            ranges,
+            stride,
+            duration,
+            output_path=debug_path,
+            extra_buffer_pix=extra_buffer_pix,
+            quiet=quiet,
         )
+        # Merge all range segments into contiguous range blocks
+        ranges = merge_ranges(ranges, stft_db.shape[1])
 
         # Extract chirp metrics and metadata
         segments = {
@@ -1731,7 +1755,7 @@ def compute_wrapper(
             metadata.update(slopes)
 
             # Trim segment around the bat call with a small buffer
-            buffer_ms = 1.0
+            buffer_ms = time_buffer_ms
             buffer_pix = int(round(buffer_ms / x_step_ms))
             trim_begin = max(0, min(segment.shape[1], call_begin[1] - buffer_pix))
             trim_end = max(0, min(segment.shape[1], call_end[1] + buffer_pix))
@@ -1839,6 +1863,81 @@ def compute_wrapper(
                 [cv2.IMWRITE_TIFF_COMPRESSION, 1],
             )
 
+    # If desired, also generate uncompressed and compressed spectrograms
+    # without reducing the sample rate. These should have similar step
+    # size in time and frequency
+    if include_original_sr:
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore', category=DeprecationWarning)
+            # ignore warning due to aifc deprecation
+            (
+                stft_db_origsr,
+                _,
+                _,
+                bands_origsr,
+                duration_origsr,
+                _,
+                time_vec_origsr,
+                orig_sr,
+                max_band_idx_origsr,
+            ) = load_stft(wav_filepath, fast_mode=fast_mode, use_original_sr=True)
+        # Apply a dynamic range to a fixed dB range
+        stft_db_origsr = gain_stft(stft_db_origsr, max_band_idx=max_band_idx_origsr)
+
+        # Bin the floating point data to X-bit integers (X=8 or X=16)
+        stft_db_origsr = normalize_stft(stft_db_origsr, None, dtype)
+
+        # Vertically flip the spectrogram, lowest frequencies on the bottom
+        # Convert to a C++ contiguous array for OpenCV
+        stft_db_origsr = np.ascontiguousarray(stft_db_origsr[::-1, :])
+        bands_origsr = bands_origsr[::-1]
+        y_step_freq_origsr = float(bands_origsr[0] - bands_origsr[1])
+        x_step_ms_origsr = float(1e3 * (time_vec_origsr[1] - time_vec_origsr[0]))
+        bands_origsr = np.around(bands_origsr).astype(np.int32).tolist()
+
+        # Allow up to 5% change in step sizes or frequency bands when comparing
+        # to band-limited spectrogram.
+        tol = 5e-2
+        assert (
+            np.abs(x_step_ms - x_step_ms_origsr) / x_step_ms <= tol
+        ), 'time step changed unexpectedly much when using original sample rate'
+        assert (
+            np.abs(y_step_freq - y_step_freq_origsr) / y_step_freq <= tol
+        ), 'frequency step changed unexpectedly much when using original sample rate'
+        if orig_sr >= sr:
+            assert all(
+                [np.abs(x - y) / x <= tol for x, y in zip(bands, bands_origsr[-len(bands) :])]
+            ), 'lower frequency bands changed unexpectedly much when using original sample rate'
+        else:
+            assert all(
+                [
+                    np.abs(x - y) / x <= tol
+                    for x, y in zip(bands[-len(bands_origsr) :], bands_origsr)
+                ]
+            ), 'lower frequency bands changed unexpectedly much when using original sample rate'
+
+        # Create compressed spectrogram using segment start and stop times
+        segments_origsr = []
+        for segment_meta in metas:
+            start = max(0, int(np.round(segment_meta['segment start.ms'] / x_step_ms_origsr)))
+            end = min(
+                stft_db_origsr.shape[1],
+                int(np.round(segment_meta['segment end.ms'] / x_step_ms_origsr)),
+            )
+            segments_origsr.append(stft_db_origsr[:, start:end])
+        segments['stft_db_origsr'] = np.concatenate(segments_origsr, axis=1)
+
+        # Save some metadata
+        meta_origsr = {
+            'sr.hz': int(orig_sr),
+            'duration.ms': round(duration_origsr * 1e3, 3),
+            'frequencies': {
+                'min.hz': int(FREQ_MIN),
+                'max.hz': int(max(bands_origsr)),
+                'pixels.hz': bands_origsr,
+            },
+        }
+
     output_paths = []
     compressed_paths = []
     mask_paths = []
@@ -1849,6 +1948,10 @@ def compute_wrapper(
         datas = [
             (output_paths, 'jpg', stft_db),
         ]
+    if not fast_mode and include_original_sr:
+        datas += [
+            (output_paths, 'origsr.jpg', stft_db_origsr),
+        ]
     if plot_uncompressed_amplitude:
         datas += [
             (waveplot_plots, 'waveplot.jpg', waveplot),
@@ -1856,6 +1959,10 @@ def compute_wrapper(
     if 'stft_db' in segments:
         datas += [
             (compressed_paths, 'compressed.jpg', segments['stft_db']),
+        ]
+    if 'stft_db_origsr' in segments:
+        datas += [
+            (compressed_paths, 'compressed.origsr.jpg', segments['stft_db_origsr']),
         ]
     if 'waveplot' in segments:
         datas += [
@@ -1869,6 +1976,59 @@ def compute_wrapper(
             (mask_paths, 'mask.jpg', segments['costs']),
             (masked_paths, 'masked.jpg', masked),
         ]
+
+    # Interpolate waveplots, mask, and masked images to approximately match the original sample rate images
+    if include_original_sr:
+        if plot_uncompressed_amplitude:
+            waveplot_interp = cv2.resize(
+                waveplot,
+                (stft_db_origsr.shape[1], waveplot.shape[0]),
+                interpolation=cv2.INTER_LINEAR,
+            )
+            datas += [
+                (waveplot_plots, 'waveplot.origsr.jpg', waveplot_interp),
+            ]
+        if 'waveplot' in segments:
+            waveplot_compressed_interp = cv2.resize(
+                segments['waveplot'],
+                (segments['stft_db_origsr'].shape[1], segments['waveplot'].shape[0]),
+                interpolation=cv2.INTER_LINEAR,
+            )
+            datas += [
+                (
+                    waveplot_compressed_paths,
+                    'compressed.waveplot.origsr.jpg',
+                    waveplot_compressed_interp,
+                ),
+            ]
+        if 'costs' in segments and 'stft_db' in segments:
+            mask_interp = cv2.resize(
+                segments['costs'],
+                (segments['stft_db_origsr'].shape[1], segments['costs'].shape[0]),
+                interpolation=cv2.INTER_LINEAR,
+            )
+            masked_interp = cv2.resize(
+                masked,
+                (segments['stft_db_origsr'].shape[1], masked.shape[0]),
+                interpolation=cv2.INTER_LINEAR,
+            )
+            if orig_sr >= sr:
+                # Pad mask and masked to account for extra higher frequencies
+                mask_interp = np.pad(
+                    mask_interp, ((stft_db_origsr.shape[0] - mask_interp.shape[0], 0), (0, 0))
+                )
+                masked_interp = np.pad(
+                    masked_interp, ((stft_db_origsr.shape[0] - masked_interp.shape[0], 0), (0, 0))
+                )
+            else:
+                # remove higher frequencies from mask which aren't present with original sr
+                mask_interp = mask_interp[mask_interp.shape[0] - stft_db_origsr.shape[0] :]
+                masked_interp = masked_interp[masked_interp.shape[0] - stft_db_origsr.shape[0] :]
+                pass
+            datas += [
+                (mask_paths, 'mask.origsr.jpg', mask_interp),
+                (masked_paths, 'masked.origsr.jpg', masked_interp),
+            ]
 
     for accumulator, tag, data in datas:
         if data.dtype != np.uint8:
@@ -1926,9 +2086,22 @@ def compute_wrapper(
             'width.px': segments['stft_db'].shape[1],
             'height.px': segments['stft_db'].shape[0],
         }
+    if 'stft_db_origsr' in segments:
+        metadata['size']['compressed_origsr'] = {
+            'width.px': segments['stft_db_origsr'].shape[1],
+            'height.px': segments['stft_db_origsr'].shape[0],
+        }
+        metadata['size']['uncompressed_origsr'] = {
+            'width.px': stft_db_origsr.shape[1],
+            'height.px': stft_db_origsr.shape[0],
+        }
+        metadata['metadata_origsr'] = meta_origsr
     if 'costs' in segments and 'stft_db' in segments:
         metadata['size']['mask'] = metadata['size']['compressed']
         metadata['size']['masked'] = metadata['size']['compressed']
+        if include_original_sr:
+            metadata['size']['mask_origsr'] = metadata['size']['compressed_origsr']
+            metadata['size']['masked_origsr'] = metadata['size']['compressed_origsr']
 
     metadata_path = f'{out_file_stem}.metadata.json'
     with open(metadata_path, 'w') as metafile:
