@@ -274,15 +274,12 @@ def example():
     """
     Run the pipeline on an example WAV with the default configuration
     """
-    TEST_WAV = 'example1.wav'
-    TEST_WAV_HASH = '391efce5433d1057caddb4ce07b9712c523d6a815e4ee9e64b62973569982925'  # NOQA
-
     wav_filepath = join(PWD, 'examples', 'example1.wav')
 
     if not exists(wav_filepath):
         wav_filepath = pooch.retrieve(
-            url=f'https://raw.githubusercontent.com/Kitware/batbot/main/examples/{TEST_WAV}',
-            known_hash=TEST_WAV_HASH,
+            url='https://media.githubusercontent.com/media/Kitware/batbot/main/examples/example1.wav',
+            known_hash='391efce5433d1057caddb4ce07b9712c523d6a815e4ee9e64b62973569982925',
             progressbar=True,
         )
         assert exists(wav_filepath)
