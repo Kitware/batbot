@@ -2,6 +2,13 @@
 Changelog
 =========
 
+Version 0.2.0
+-------------
+
+* Add MobileNet ONNX species classification for spectrogram images and WAV files.
+* Add ``classify``, ``classify-wav``, and ``classify-bulk`` CLI commands.
+* Add mirrored model retrieval, bulk species summaries, and a performance plotting example.
+
 TODO
 ----
 

@@ -29,8 +29,7 @@ from batbot import log
 
 def pipeline_filepath_validator(ctx, param, value):
     if not exists(value):
-        log.error(f'Input filepath does not exist: {value}')
-        ctx.exit()
+        raise click.BadParameter(f'Input filepath does not exist: {value}')
     return value
 
 
@@ -39,13 +38,18 @@ def pipeline_filepath_validator(ctx, param, value):
     '--config',
     help='Which ML model to use for inference',
     default=None,
-    type=click.Choice(['usgs']),
+    type=click.Choice(['mobilenet']),
 )
-def fetch(config):
+@click.option(
+    '--pull',
+    is_flag=True,
+    help='Download the mirrored model even when a bundled copy is available.',
+)
+def fetch(config, pull):
     """
     Fetch the required machine learning ONNX model for the classifier
     """
-    batbot.fetch(config=config)
+    print(batbot.fetch(config=config, pull=pull))
 
 
 @click.command('pipeline')
@@ -300,7 +304,12 @@ def preprocess(
         return
 
     # Begin execution loop.
-    data = {'output_path': [], 'compressed_path': [], 'metadata_path': [], 'failed_files': []}
+    data = {
+        'output_path': [],
+        'compressed_path': [],
+        'metadata_path': [],
+        'failed_files': [],
+    }
     if num_workers is None or num_workers == 0:
 
         # Serial execution.
@@ -386,7 +395,7 @@ def preprocess(
     '--config',
     help='Which ML model to use for inference',
     default=None,
-    type=click.Choice(['usgs']),
+    type=click.Choice(['mobilenet']),
 )
 @click.option(
     '--output',
@@ -406,46 +415,149 @@ def batch(
     output,
     # classifier_thresh,
 ):
-    """
-    Run the BatBot pipeline in batch on a list of input WAV filepaths.
-    An example output of the JSON can be seen below.
-
-    .. code-block:: javascript
-
-            {
-                '/path/to/file1.wav': {
-                    'classifier': 0.5,
-                },
-                '/path/to/file2.wav': {
-                    'classifier': 0.8,
-                },
-                ...
-            }
-    """
+    """Classify a list of WAV files (legacy alias for ``classify-wav``)."""
     if config is not None:
         config = config.strip().lower()
     # classifier_thresh /= 100.0
 
     log.debug(f'Running batch on {len(filepaths)} files...')
 
-    score_list = batbot.batch(
+    results = batbot.batch(
         filepaths,
         config=config,
-        # classifier_thresh=classifier_thresh,
     )
 
-    data = {}
-    for filepath, score in zip(filepaths, score_list):
-        data[filepath] = {
-            'classifier': score,
-        }
+    data = {
+        'results': results,
+        'summary': batbot.classifier.summarize(results),
+    }
 
     log.debug('Outputting results...')
     if output:
         with open(output, 'w') as outfile:
             json.dump(data, outfile, indent=4)
     else:
-        print(data)
+        print(json.dumps(data, indent=2))
+
+
+def _write_classification_output(data, output):
+    encoded = json.dumps(data, indent=2)
+    if output:
+        with open(output, 'w') as outfile:
+            outfile.write(encoded)
+            outfile.write('\n')
+        click.echo('Outputs written to {}'.format(output))
+    else:
+        click.echo(encoded)
+
+
+@click.command('classify')
+@click.argument('spectrograms', nargs=-1, required=True, type=click.Path(exists=True))
+@click.option(
+    '--output',
+    '-o',
+    default=None,
+    type=click.Path(dir_okay=False),
+    help='Path to output JSON (defaults to stdout).',
+)
+@click.option(
+    '--batch-size',
+    default=batbot.classifier.BATCH_SIZE,
+    show_default=True,
+    type=click.IntRange(min=1),
+)
+@click.option('--top-k', default=5, show_default=True, type=click.IntRange(1, 35))
+def classify(spectrograms, output, batch_size, top_k):
+    """Classify one or more spectrogram image files."""
+    paths = batbot.classifier.discover_inputs(spectrograms, input_type='spectrogram')
+    results = batbot.classifier.classify(paths, batch_size=batch_size, top_k=top_k)
+    data = {'results': results, 'summary': batbot.classifier.summarize(results)}
+    _write_classification_output(data, output)
+
+
+@click.command('classify-wav')
+@click.argument('wav_files', nargs=-1, required=True, type=click.Path(exists=True))
+@click.option(
+    '--output',
+    '-o',
+    default=None,
+    type=click.Path(dir_okay=False),
+    help='Path to output JSON (defaults to stdout).',
+)
+@click.option(
+    '--spectrogram-dir',
+    default=None,
+    type=click.Path(file_okay=False),
+    help='Keep generated spectrograms in this directory.',
+)
+@click.option(
+    '--batch-size',
+    default=batbot.classifier.BATCH_SIZE,
+    show_default=True,
+    type=click.IntRange(min=1),
+)
+@click.option('--top-k', default=5, show_default=True, type=click.IntRange(1, 35))
+def classify_wav(wav_files, output, spectrogram_dir, batch_size, top_k):
+    """Create spectrograms from WAV files and classify each recording."""
+    data = batbot.classifier.classify_bulk(
+        wav_files,
+        input_type='wav',
+        batch_size=batch_size,
+        top_k=top_k,
+        spectrogram_output=spectrogram_dir,
+    )
+    _write_classification_output(data, output)
+
+
+@click.command('classify-bulk')
+@click.argument('inputs', nargs=-1, required=True, type=click.Path(exists=True))
+@click.option(
+    '--input-type',
+    default='auto',
+    show_default=True,
+    type=click.Choice(['auto', 'spectrogram', 'wav']),
+    help='Limit inputs to spectrograms, WAV files, or detect both.',
+)
+@click.option('--recursive/--no-recursive', default=True, show_default=True)
+@click.option(
+    '--output',
+    '-o',
+    default=None,
+    type=click.Path(dir_okay=False),
+    help='Path to output JSON (defaults to stdout).',
+)
+@click.option(
+    '--spectrogram-dir',
+    default=None,
+    type=click.Path(file_okay=False),
+    help='Keep spectrograms generated for WAV inputs in this directory.',
+)
+@click.option(
+    '--batch-size',
+    default=batbot.classifier.BATCH_SIZE,
+    show_default=True,
+    type=click.IntRange(min=1),
+)
+@click.option('--top-k', default=5, show_default=True, type=click.IntRange(1, 35))
+def classify_bulk(
+    inputs,
+    input_type,
+    recursive,
+    output,
+    spectrogram_dir,
+    batch_size,
+    top_k,
+):
+    """Recursively classify a large folder and report species counts."""
+    data = batbot.classifier.classify_bulk(
+        inputs,
+        input_type=input_type,
+        recursive=recursive,
+        batch_size=batch_size,
+        top_k=top_k,
+        spectrogram_output=spectrogram_dir,
+    )
+    _write_classification_output(data, output)
 
 
 @click.command('example')
@@ -468,6 +580,9 @@ cli.add_command(fetch)
 cli.add_command(pipeline)
 cli.add_command(preprocess)
 cli.add_command(batch)
+cli.add_command(classify)
+cli.add_command(classify_wav)
+cli.add_command(classify_bulk)
 cli.add_command(example)
 
 

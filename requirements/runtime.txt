@@ -2,6 +2,7 @@ click
 librosa
 matplotlib
 numpy
+onnxruntime
 opencv-python-headless
 pooch
 pyastar2d>=1.1.1

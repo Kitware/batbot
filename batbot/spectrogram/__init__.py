@@ -1944,6 +1944,8 @@ def compute_wrapper(
     masked_paths = []
     waveplot_compressed_paths = []
     waveplot_plots = []
+
+    datas = []
     if not fast_mode:
         datas = [
             (output_paths, 'jpg', stft_db),

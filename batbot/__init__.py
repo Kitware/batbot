@@ -31,9 +31,9 @@ log = utils.init_logging()
 QUIET = not utils.VERBOSE
 
 
-from batbot import spectrogram  # NOQA
+from batbot import classifier, spectrogram  # NOQA
 
-VERSION = '0.1.5'
+VERSION = '0.2.0'
 version = VERSION
 __version__ = VERSION
 
@@ -44,8 +44,7 @@ def fetch(pull=False, config=None):
     """
     Fetch the Classifier ONNX model file from a CDN if it does not exist locally.
 
-    This function will throw an AssertionError if the download fails or the
-    file otherwise does not exist locally on disk.
+    Download failures are reported by :mod:`pooch`.
 
     Args:
         pull (bool, optional): If :obj:`True`, force using the downloaded version
@@ -53,12 +52,10 @@ def fetch(pull=False, config=None):
         config (str or None, optional): the configuration to use.  Defaults to :obj:`None`.
 
     Returns:
-        None
+        str: Local path to the classifier model.
 
-    Raises:
-        AssertionError: If the model cannot be fetched.
     """
-    raise NotImplementedError
+    return classifier.fetch(pull=pull, config=config)
 
 
 def pipeline(
@@ -147,7 +144,12 @@ def pipeline_multi_wrapper(
     else:
         out_file_stems = [None] * len(filepaths)
 
-    outputs = {'output_paths': [], 'compressed_paths': [], 'metadata_paths': [], 'failed_files': []}
+    outputs = {
+        'output_paths': [],
+        'compressed_paths': [],
+        'metadata_paths': [],
+        'failed_files': [],
+    }
     # print(filepaths, out_file_stems)
     if tqdm_lock is not None:
         tqdm.set_lock(tqdm_lock)
@@ -203,7 +205,12 @@ def parallel_pipeline(
 
     num_workers = min(len(in_file_chunks), num_workers)
 
-    outputs = {'output_paths': [], 'compressed_paths': [], 'metadata_paths': [], 'failed_files': []}
+    outputs = {
+        'output_paths': [],
+        'compressed_paths': [],
+        'metadata_paths': [],
+        'failed_files': [],
+    }
 
     lock_manager = Manager()
     tqdm_lock = lock_manager.Lock()
@@ -244,43 +251,23 @@ def batch(
     # classifier_thresh=classifier.CONFIGS[None]['thresh'],
     clean=True,
 ):
-    """
-    Run the ML pipeline on a given batch of WAV filepaths and return the detections
-    in a corresponding list.  The output is a list of outputs matching the output of
-    :func:`batbot.pipeline`, except the processing is done in batch and is much faster.
-
-    The final output is a list of lists of dictionaries, each representing a
-    single detection.  Each dictionary has a structure with the following keys:
-
-        ::
-
-            {
-                'l': class_label (str)
-                'c': confidence (float)
-                'x': x_top_left (float)
-                'y': y_top_left (float)
-                'w': width (float)
-                'h': height (float)
-            }
+    """Classify a batch of WAV files using temporary BatBot spectrograms.
 
     Args:
-        filepaths (list): list of str WAV filepath (relative or absolute)
-        config (str or None, optional): the configuration to use.  Defaults to :obj:`None`.
-        classifier_thresh (float or None, optional): the confidence threshold for the Classifier's
-            predictions.  Defaults to the default configuration setting.
-        clean (bool, optional): a flag to clean up any on-disk spectrograms that were generated.
-            Defaults to :obj:`True`.
+        filepaths (list): WAV file paths.
+        config (str or None): Classifier configuration name.
+        clean (bool): Retained for compatibility. Temporary spectrograms are
+            always cleaned up by :func:`batbot.classifier.classify_wav`.
 
     Returns:
-        tuple ( list ( float ), list ( list ( dict ) ) : corresponding list of classifier scores, corresponding list of lists of predictions
+        list(dict): One label, confidence, ranked result, and full score map per
+        WAV file.
     """
-    # Run tiling
-    batch = {}
-    for filepath in filepaths:
-        _, _, _, metadata = spectrogram.compute(filepath)
-        batch[filepath] = metadata
-
-    raise NotImplementedError
+    sessions = {}
+    return [
+        classifier.classify_wav(filepath, config=config, sessions=sessions)
+        for filepath in filepaths
+    ]
 
 
 def example():

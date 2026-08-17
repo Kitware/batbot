@@ -126,6 +126,57 @@ To then add GPU acceleration, you need to replace `onnxruntime` with `onnxruntim
 How to Run
 ----------
 
+Species Classification
+~~~~~~~~~~~~~~~~~~~~~~
+
+BatBot includes a 35-class MobileNet ONNX model for classifying spectrograms.
+The model is used from the package when available and can also be downloaded
+from its Kitware Data mirror with ``pooch``:
+
+.. code-block:: bash
+
+   batbot fetch
+   batbot fetch --pull
+
+Classify an existing spectrogram, classify a WAV through BatBot's built-in
+spectrogram step, or recursively process a large directory:
+
+.. code-block:: bash
+
+   batbot classify recording.jpg
+   batbot classify-wav recording.wav --output recording.json
+   batbot classify-bulk ./recordings --input-type wav --output results.json
+
+Bulk JSON includes every per-file prediction plus ``label_counts``,
+``species_counts`` (which excludes ``NOISE``), the noise count, failures, and
+mean confidence.  Generated WAV spectrograms are temporary by default; pass
+``--spectrogram-dir ./spectrograms`` to retain them.
+
+The corresponding Python API follows the Scoutbot WIC ``pre`` / ``predict`` /
+``post`` pattern.  A convenience call is usually sufficient:
+
+.. code-block:: python
+
+   from batbot import classifier
+
+   result = classifier.classify('recording.jpg')[0]
+   wav_result = classifier.classify_wav('recording.wav')
+   folder = classifier.classify_bulk(['./recordings'], input_type='wav')
+
+To evaluate a labeled dataset arranged as ``LABEL/*.wav``, install
+``scikit-learn`` and run the included performance example:
+
+.. code-block:: bash
+
+   pip install "batbot[performance]"
+   python examples/plot_classifier_performance.py ./validation \
+       --cache predictions.json --output performance.png
+
+The plot includes count, true-normalized, and prediction-normalized confusion
+matrices, top-k accuracy, Matthews correlation, and ``NOISE`` precision-recall
+and ROC diagnostics when that label is present. Species codes are reordered by
+genus before plotting so the shaded error regions remain contiguous.
+
 You can run the Gradio demo with:
 
 .. code-block:: bash

@@ -6,3 +6,7 @@ include LICENSE
 
 # Include examples files for testing
 include examples/example1.wav
+include examples/plot_classifier_performance.py
+
+# Include the classifier model in source distributions
+recursive-include batbot/classifier/models/onnx *.onnx

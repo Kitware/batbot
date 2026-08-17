@@ -18,6 +18,19 @@ Spectrogram
    :undoc-members:
    :show-inheritance:
 
+Classifier
+----------
+
+.. automodule:: batbot.classifier
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. automodule:: batbot.classifier.dataloader
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Pipeline
 --------
 
