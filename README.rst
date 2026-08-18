@@ -342,8 +342,8 @@ Reference `pre-commit's installation instructions <https://pre-commit.com/#insta
     pre-commit run --all-files
 
 The code base is formatted by `Black <https://black.readthedocs.io/en/stable/>`_
-and linted by Flake8. Black, isort, Flake8, pytest, coverage, mypy, packaging,
-and dependency settings are centralized in ``pyproject.toml``. The
+and linted by Flake8. Black, isort, Flake8, pytest, coverage, packaging, and
+dependency settings are centralized in ``pyproject.toml``. The
 ``flake8-pyproject`` plugin lets the unchanged Flake8 command consume that
 configuration.
 

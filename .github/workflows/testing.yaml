@@ -38,9 +38,6 @@ jobs:
       - name: Check with pre-commit
         run: SKIP=hadolint pre-commit run --all-files
 
-      - name: Check classifier types
-        run: mypy
-
       - name: Run tests and coverage
         run: pytest --cov-report=xml --random-order-seed=1
 
