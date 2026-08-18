@@ -21,3 +21,4 @@ example*.json
 .vscode/*
 
 assets/*.key
+assets/*.png

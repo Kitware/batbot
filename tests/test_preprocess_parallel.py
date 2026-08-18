@@ -16,18 +16,18 @@ def test_preprocess_parallel():
     num_examples = 2
     output_str = str(data.output).split('\n')
     for ii in range(num_examples):
-        expected_file = './output/example{}.01of01.compressed.jpg'.format(ii + 1)
+        expected_file = f'./output/example{ii + 1}.01of01.compressed.jpg'
         assert any(
             [expected_file in x for x in output_str]
-        ), 'Did not find file listed among outputs: {}'.format(expected_file)
+        ), f'Did not find file listed among outputs: {expected_file}'
         assert os.path.exists(expected_file), 'Did not find file in filesystem: {}'.format(
             expected_file
         )
     for ii in range(num_examples):
-        expected_file = './output/example{}.metadata.json'.format(ii + 1)
+        expected_file = f'./output/example{ii + 1}.metadata.json'
         assert any(
             [expected_file in x for x in output_str]
-        ), 'Did not find file listed among outputs: {}'.format(expected_file)
+        ), f'Did not find file listed among outputs: {expected_file}'
         assert os.path.exists(expected_file), 'Did not find file in filesystem: {}'.format(
             expected_file
         )

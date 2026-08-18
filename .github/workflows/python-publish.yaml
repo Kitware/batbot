@@ -1,4 +1,4 @@
-name: Wheel
+name: Python distributions
 
 on:
   pull_request:
@@ -9,43 +9,10 @@ on:
       - main
     tags:
       - v*
-  schedule:
-    - cron: '0 16 * * *' # Every day at 16:00 UTC (~09:00 PT)
 
 jobs:
-  build_wheels:
-    name: Build on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-        python-version: [3.12]
-
-    steps:
-      - name: Checkout code
-        uses: nschloe/action-cached-lfs-checkout@v1.2.3
-        with:
-          exclude: "examples/example[2-4].wav"
-
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v6
-        with:
-          python-version: ${{ matrix.python-version }}
-
-      - name: Build wheel
-        run: |
-          pip install --upgrade pip
-          pip install build
-          python -m build --wheel --outdir dist/ .
-
-      - uses: actions/upload-artifact@v6
-        with:
-          name: artifact-wheel-${{ matrix.os }}-${{ matrix.python-version }}
-          path: ./dist/*.whl
-
-  build_sdist:
-    name: Build source distribution
+  build:
+    name: Build wheel and source distribution
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -53,79 +20,87 @@ jobs:
         with:
           exclude: "examples/example[2-4].wav"
 
-      - name: Set up Python 3.12
+      - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: '3.12'
+          python-version: '3.11'
+          cache: pip
 
-      - name: Build sdist
+      - name: Build and validate distributions
         run: |
-          pip install --upgrade pip
-          pip install build
-          python -m build --sdist --outdir dist/ .
+          python -m pip install --upgrade pip
+          python -m pip install build twine
+          python -m build --outdir dist/ .
+          python -m twine check dist/*
 
-      - uses: actions/upload-artifact@v6
+      - name: Upload distributions
+        uses: actions/upload-artifact@v6
         with:
-          name: artifact-sdist
-          path: ./dist/*.tar.gz
+          name: python-distributions
+          path: dist/
+          if-no-files-found: error
 
-  test_wheel:
-    needs: [build_wheels, build_sdist]
+  test-wheel:
+    name: Test the installed wheel and bundled model
+    needs: build
     runs-on: ubuntu-latest
-
-    # test wheel
-    if: github.event_name == 'push'
     steps:
-      - name: Set up Python 3.12
+      - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: '3.12'
+          python-version: '3.11'
+          cache: pip
 
-      - uses: actions/download-artifact@v7
+      - name: Download distributions
+        uses: actions/download-artifact@v7
         with:
-          path: artifact
+          name: python-distributions
+          path: dist
 
       - name: Install wheel
         run: |
-          pip install --upgrade pip
-          pip install wheel
-          find .
-          mkdir dist
-          cp artifact/*-ubuntu-*/*.whl dist/
-          cp artifact/*/*.tar.gz dist/
-          pip install dist/*.whl
+          python -m pip install --upgrade pip
+          python -m pip install dist/*.whl
 
-      - name: Test module
+      - name: Smoke test wheel outside the checkout
+        working-directory: ${{ runner.temp }}
         run: |
-          python -c "import batbot;"
+          python -I -c "import batbot; assert batbot.__version__"
+          batbot --help
+          python -I - <<'PY'
+          import tempfile
+          from pathlib import Path
 
-      # - name: Test CLI
-      #   run: |
-      #     batbot example
+          import cv2
+          import numpy as np
 
-  upload_pypi:
-    needs: [test_wheel]
-    runs-on: ubuntu-latest
-    # upload to PyPI on every tag starting with 'v'
+          from batbot import classifier
+
+          with tempfile.TemporaryDirectory() as directory:
+              image = Path(directory) / 'smoke.png'
+              cv2.imwrite(str(image), np.zeros((300, 700, 3), dtype=np.uint8))
+              result = classifier.Classifier().classify(image)[0]
+              assert result['label'] in classifier.CLASSES
+              assert len(result['scores']) == len(classifier.CLASSES)
+          PY
+
+  publish:
+    name: Publish to PyPI
+    needs: test-wheel
     if: github.event_name == 'push' && startsWith(github.event.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
     environment:
       name: pypi
       url: https://pypi.org/p/batbot
     permissions:
       id-token: write
+      contents: read
     steps:
-      - uses: actions/download-artifact@v7
+      - name: Download distributions
+        uses: actions/download-artifact@v7
         with:
-          path: artifact
+          name: python-distributions
+          path: dist
 
-      - name: Install wheel
-        run: |
-          find .
-          mkdir dist
-          cp artifact/*-ubuntu-*/*.whl dist/
-          cp artifact/*/*.tar.gz dist/
-
-      - name: Publish package distributions to PyPI
+      - name: Publish distributions with trusted publishing
         uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          password: ${{ secrets.BATBOT_PYPI_TOKEN }}

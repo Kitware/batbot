@@ -19,6 +19,7 @@ Contents
    Home <self>
    batbot
    cli
+   publishing
 
 Indices and tables
 ------------------

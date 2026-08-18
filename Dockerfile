@@ -26,11 +26,8 @@ WORKDIR /code
 
 COPY ./ /code
 
-RUN python3 -m venv /venv
-
 # hadolint ignore=DL3003,DL3013
-RUN /venv/bin/pip install --no-cache-dir -r requirements/runtime.txt \
- && /venv/bin/pip install --no-cache-dir -r requirements/optional.txt \
+RUN python3 -m venv /venv \
  && /venv/bin/pip install --no-cache-dir -e .
  # && if [ "$(uname -m)" != "aarch64" ] \
  #       ; then \
