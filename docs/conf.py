@@ -27,6 +27,8 @@ extensions = [
     'sphinx_click',
 ]
 
+suppress_warnings = ['autosectionlabel.*']
+
 intersphinx_mapping = {
     'rtd': ('https://docs.readthedocs.io/en/stable/', None),
     'python': ('https://docs.python.org/3/', None),
