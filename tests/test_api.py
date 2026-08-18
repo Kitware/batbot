@@ -160,8 +160,9 @@ def test_batch_reuses_one_classifier(monkeypatch):
     instances = []
 
     class FakeClassifier:
-        def __init__(self, config=None):
+        def __init__(self, config=None, num_workers=1):
             self.config = config
+            self.num_workers = num_workers
             self.paths = []
             instances.append(self)
 
@@ -171,10 +172,16 @@ def test_batch_reuses_one_classifier(monkeypatch):
 
     monkeypatch.setattr(classifier, 'Classifier', FakeClassifier)
 
-    results = api.batch(['one.wav', Path('two.wav')], config='mobilenet', clean=False)
+    results = api.batch(
+        ['one.wav', Path('two.wav')],
+        config='mobilenet',
+        clean=False,
+        num_workers=3,
+    )
 
     assert len(instances) == 1
     assert instances[0].config == 'mobilenet'
+    assert instances[0].num_workers == 3
     assert instances[0].paths == ['one.wav', Path('two.wav')]
     assert [result['path'] for result in results] == ['one.wav', 'two.wav']
 

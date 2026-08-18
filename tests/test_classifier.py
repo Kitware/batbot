@@ -1,5 +1,6 @@
 from dataclasses import FrozenInstanceError
 from pathlib import Path
+from threading import Barrier, Lock
 
 import cv2
 import numpy as np
@@ -72,6 +73,50 @@ def test_predict_batches_and_averages(monkeypatch):
     assert output[0]['NOISE'] == 0.25
 
 
+def test_predict_runs_multiple_spectrograms_concurrently_and_preserves_order():
+    class ConcurrentSession(FakeSession):
+        def __init__(self):
+            super().__init__()
+            self.barrier = Barrier(2)
+            self.lock = Lock()
+            self.active = 0
+            self.maximum_active = 0
+            self.calls = 0
+
+        def run(self, output_names, inputs):
+            batch = inputs['input']
+            with self.lock:
+                self.active += 1
+                self.maximum_active = max(self.maximum_active, self.active)
+                self.calls += 1
+                call_number = self.calls
+            try:
+                if call_number <= 2:
+                    self.barrier.wait(timeout=5)
+                scores = np.zeros((len(batch), len(classifier.CLASSES)), dtype=np.float32)
+                scores[:, 0] = batch[0, 0, 0, 0]
+                return [scores]
+            finally:
+                with self.lock:
+                    self.active -= 1
+
+    session = ConcurrentSession()
+    inputs = [(np.full((1, 224, 224, 3), value, dtype=np.uint8), 'mobilenet') for value in range(4)]
+
+    outputs = list(
+        classifier.predict(
+            inputs,
+            sessions={'mobilenet': session},
+            num_workers=2,
+            total=len(inputs),
+        )
+    )
+
+    assert session.maximum_active == 2
+    assert [prediction[0, 0] for prediction, _ in outputs] == [0.0, 1.0, 2.0, 3.0]
+    assert [config for _, config in outputs] == ['mobilenet'] * len(inputs)
+
+
 def test_classifier_reuses_its_session(monkeypatch, tmp_path):
     path = tmp_path / 'spectrogram.jpg'
     cv2.imwrite(str(path), np.zeros((300, 700, 3), dtype=np.uint8))
@@ -137,8 +182,10 @@ def test_real_model_inference(tmp_path):
     path = tmp_path / 'spectrogram.png'
     cv2.imwrite(str(path), np.zeros((300, 700, 3), dtype=np.uint8))
 
-    result = classifier.Classifier(top_k=3).classify(path)[0]
+    results = classifier.Classifier(top_k=3, num_workers=2).classify([path, path])
+    result = results[0]
 
+    assert results[0] == results[1]
     assert result['label'] in classifier.CLASSES
     assert len(result['scores']) == len(classifier.CLASSES)
     assert len(result['top']) == 3

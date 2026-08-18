@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 import os
 import warnings
+from collections import deque
 from collections.abc import Iterable, Iterator, MutableMapping, Sequence
+from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Any
 
 import numpy as np
@@ -94,39 +96,77 @@ def _validate_session(session: Any, config: ClassifierConfig) -> None:
             raise ValueError('Classifier labels do not match the selected configuration')
 
 
+def _predict_windows(
+    windows: np.ndarray[Any, Any],
+    session: Any,
+    batch_size: int,
+) -> np.ndarray[Any, Any]:
+    """Run one spectrogram's windows through a reusable ONNX session."""
+    input_name = session.get_inputs()[0].name
+    outputs = []
+    for start in range(0, len(windows), batch_size):
+        output = session.run(None, {input_name: windows[start : start + batch_size]})
+        outputs.append(output[0])
+    if not outputs:
+        raise ValueError('Classifier preprocessing produced no image windows')
+    return np.vstack(outputs).mean(axis=0, keepdims=True)
+
+
 def predict(
     gen: Iterable[tuple[np.ndarray[Any, Any], str | ClassifierConfig]],
     batch_size: int = BATCH_SIZE,
     providers: Sequence[str] | None = None,
     pull: bool = False,
     sessions: MutableMapping[str, Any] | None = None,
+    total: int | None = None,
+    num_workers: int = 1,
 ) -> Iterator[tuple[np.ndarray[Any, Any], str]]:
-    """Run ONNX inference and average all windows from each spectrogram."""
+    """Run ordered ONNX inference, optionally across multiple worker threads."""
     if batch_size <= 0:
         raise ValueError('batch_size must be positive')
+    if num_workers <= 0:
+        raise ValueError('num_workers must be positive')
 
     active_sessions = {} if sessions is None else sessions
-    for windows, config_value in tqdm.tqdm(
+    items = tqdm.tqdm(
         gen,
         disable=QUIET,
         desc='Classifying spectrograms',
-    ):
+        total=total,
+    )
+
+    def session_for(config_value: str | ClassifierConfig) -> tuple[Any, str]:
         config = resolve_config(config_value)
         session = active_sessions.get(config.key)
         if session is None:
             session = _create_session(fetch(pull=pull, config=config), providers=providers)
             _validate_session(session, config)
             active_sessions[config.key] = session
+        return session, config.key
 
-        input_name = session.get_inputs()[0].name
-        outputs = []
-        for start in range(0, len(windows), batch_size):
-            output = session.run(None, {input_name: windows[start : start + batch_size]})
-            outputs.append(output[0])
-        if not outputs:
-            raise ValueError('Classifier preprocessing produced no image windows')
-        predictions = np.vstack(outputs).mean(axis=0, keepdims=True)
-        yield predictions, config.key
+    if num_workers == 1:
+        for windows, config_value in items:
+            session, config_key = session_for(config_value)
+            yield _predict_windows(windows, session, batch_size), config_key
+        return
+
+    pending: deque[tuple[Future[np.ndarray[Any, Any]], str]] = deque()
+    with ThreadPoolExecutor(
+        max_workers=num_workers,
+        thread_name_prefix='batbot-onnx',
+    ) as executor:
+        for windows, config_value in items:
+            session, config_key = session_for(config_value)
+            pending.append(
+                (executor.submit(_predict_windows, windows, session, batch_size), config_key)
+            )
+            if len(pending) >= num_workers:
+                future, completed_config = pending.popleft()
+                yield future.result(), completed_config
+
+        while pending:
+            future, completed_config = pending.popleft()
+            yield future.result(), completed_config
 
 
 def post(
@@ -179,17 +219,21 @@ class Classifier:
         top_k: int = 5,
         pull: bool = False,
         sessions: MutableMapping[str, Any] | None = None,
+        num_workers: int = 1,
     ) -> None:
         if batch_size <= 0:
             raise ValueError('batch_size must be positive')
         if top_k <= 0:
             raise ValueError('top_k must be positive')
+        if num_workers <= 0:
+            raise ValueError('num_workers must be positive')
         self.config = resolve_config(config)
         self.batch_size = batch_size
         self.providers = tuple(providers) if providers is not None else None
         self.top_k = top_k
         self.pull = pull
         self._sessions = {} if sessions is None else sessions
+        self.num_workers = num_workers
 
     @property
     def session(self) -> Any:
@@ -231,6 +275,8 @@ class Classifier:
                 providers=self.providers,
                 pull=self.pull,
                 sessions={self.config.key: self.session},
+                total=len(filepaths),
+                num_workers=self.num_workers,
             )
         )
         result_top_k = self.top_k if top_k is None else top_k
@@ -287,6 +333,7 @@ def classify(
     providers: Sequence[str] | None = None,
     top_k: int = 5,
     sessions: MutableMapping[str, Any] | None = None,
+    num_workers: int = 1,
 ) -> list[ClassificationResult]:
     """Classify spectrograms with a one-shot or externally shared session."""
     return Classifier(
@@ -295,4 +342,5 @@ def classify(
         providers=providers,
         top_k=top_k,
         sessions=sessions,
+        num_workers=num_workers,
     ).classify(inputs)

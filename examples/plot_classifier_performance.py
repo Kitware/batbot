@@ -1,12 +1,13 @@
 #!/usr/bin/env python
-"""Evaluate BatBot on ``LABEL/*.wav`` data and plot classifier performance.
+"""Evaluate BatBot on labeled WAV or JPG data and plot classifier performance.
 
 Example:
     python examples/plot_classifier_performance.py ./validation --output performance.png
 
-The immediate parent directory of each WAV is its ground-truth label, for
-example ``validation/EPFU/recording.wav``.  Labels must use one of the species
-codes embedded in the BatBot ONNX model.
+The immediate parent directory of each input is its ground-truth label, for
+example ``validation/EPFU/recording.wav`` or ``validation/EPFU/call.jpg``.
+WAV, JPG, and JPEG inputs can be mixed in one dataset. Labels must use one of
+the species codes embedded in the BatBot ONNX model.
 """
 
 import argparse
@@ -16,12 +17,12 @@ from pathlib import Path
 import matplotlib.patches as patches
 import matplotlib.pyplot as plt
 import numpy as np
-from sklearn import metrics
 from tqdm import tqdm
 
 from batbot import classifier
 
 CUSTOM_LABEL = 'NOISE'
+SUPPORTED_EXTENSIONS = frozenset({'.wav', '.jpg', '.jpeg'})
 GENUS_ORDER_SWAPS = [
     (5, 4),
     (12, 11),
@@ -94,26 +95,35 @@ def shade_regions(display, axis, plot):
     return errors / max(1, plot.confusion_matrix.sum())
 
 
-def run_predictions(paths, cache_path=None, batch_size=classifier.BATCH_SIZE):
+def discover_inputs(data_path):
+    """Return supported WAV and JPG inputs in deterministic order."""
+    return sorted(
+        path
+        for path in data_path.rglob('*')
+        if path.is_file() and path.suffix.lower() in SUPPORTED_EXTENSIONS
+    )
+
+
+def run_predictions(paths, cache_path=None, batch_size=classifier.BATCH_SIZE, num_workers=1):
     if cache_path is not None and cache_path.exists():
         with cache_path.open() as cache_file:
             cached = json.load(cache_file)
         predictions = cached['results']
         cached_paths = [result['path'] for result in predictions]
         if cached_paths != [str(path) for path in paths]:
-            raise ValueError('Prediction cache does not match the discovered WAV files')
+            raise ValueError('Prediction cache does not match the discovered input files')
         return predictions
 
+    runner = classifier.Classifier(batch_size=batch_size, num_workers=num_workers)
     predictions = []
-    sessions = {}
-    for path in tqdm(paths, desc='Classifying WAV files'):
-        predictions.append(
-            classifier.classify_wav(
-                path,
-                batch_size=batch_size,
-                sessions=sessions,
-            )
-        )
+    for path in tqdm(paths, desc='Classifying inputs'):
+        suffix = path.suffix.lower()
+        if suffix == '.wav':
+            predictions.append(runner.classify_wav(path))
+        elif suffix in SUPPORTED_EXTENSIONS:
+            predictions.append(runner.classify(path)[0])
+        else:
+            raise ValueError(f'Unsupported classifier input: {path}')
 
     if cache_path is not None:
         cache_path.parent.mkdir(parents=True, exist_ok=True)
@@ -123,6 +133,8 @@ def run_predictions(paths, cache_path=None, batch_size=classifier.BATCH_SIZE):
 
 
 def plot_confusion(axis, targets, predicted, labels, display, normalize, title):
+    from sklearn import metrics
+
     plot = metrics.ConfusionMatrixDisplay.from_predictions(
         targets,
         predicted,
@@ -143,6 +155,8 @@ def plot_confusion(axis, targets, predicted, labels, display, normalize, title):
 
 
 def plot_performance(paths, predictions, output_path):
+    from sklearn import metrics
+
     classes = classifier.resolve_config().classes
     backward = {label: index for index, label in enumerate(classes)}
     unknown = sorted({path.parent.name for path in paths} - set(classes))
@@ -287,17 +301,32 @@ def plot_performance(paths, predictions, output_path):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('data', type=Path, help='Root directory containing LABEL/*.wav')
+    parser.add_argument(
+        'data',
+        type=Path,
+        help='Root directory containing labeled WAV, JPG, or JPEG files',
+    )
     parser.add_argument('--output', type=Path, default=Path('classifier-performance.png'))
     parser.add_argument('--cache', type=Path, default=None, help='Optional prediction JSON cache')
     parser.add_argument('--batch-size', type=int, default=classifier.BATCH_SIZE)
+    parser.add_argument(
+        '--num-workers',
+        type=int,
+        default=1,
+        help='Number of concurrent ONNX inference workers',
+    )
     args = parser.parse_args()
 
-    paths = sorted(path for path in args.data.rglob('*') if path.suffix.lower() == '.wav')
+    paths = discover_inputs(args.data)
     if not paths:
-        parser.error(f'No WAV files found beneath {args.data}')
+        parser.error(f'No WAV or JPG files found beneath {args.data}')
 
-    predictions = run_predictions(paths, cache_path=args.cache, batch_size=args.batch_size)
+    predictions = run_predictions(
+        paths,
+        cache_path=args.cache,
+        batch_size=args.batch_size,
+        num_workers=args.num_workers,
+    )
     stats = plot_performance(paths, predictions, args.output)
     print(stats)
     print(f'Saved performance plot: {args.output}')

@@ -73,6 +73,7 @@ def classify_wav(
     out_file_stem: PathInput | None = None,
     keep_spectrograms: bool = False,
     sessions: MutableMapping[str, Any] | None = None,
+    num_workers: int = 1,
     *,
     _runner: Classifier | None = None,
 ) -> ClassificationResult:
@@ -85,6 +86,7 @@ def classify_wav(
         providers=providers,
         top_k=top_k,
         sessions=sessions,
+        num_workers=num_workers,
     )
     filepath_string = str(filepath)
     if output_folder is not None or out_file_stem is not None or keep_spectrograms:
@@ -174,6 +176,7 @@ def classify_bulk(
     providers: Sequence[str] | None = None,
     top_k: int = 5,
     spectrogram_output: PathInput | None = None,
+    num_workers: int = 1,
     *,
     _runner: Classifier | None = None,
 ) -> BulkClassification:
@@ -184,6 +187,7 @@ def classify_bulk(
         batch_size=batch_size,
         providers=providers,
         top_k=top_k,
+        num_workers=num_workers,
     )
     results_by_path: dict[str, ClassificationItem] = {}
 

@@ -71,15 +71,18 @@ def test_batch_cli_writes_stdout_and_json(monkeypatch, tmp_path):
 
     monkeypatch.setattr(batbot, 'batch', fake_batch)
 
-    printed = CliRunner().invoke(batch, [str(wav), '--config', 'mobilenet'])
+    printed = CliRunner().invoke(
+        batch,
+        [str(wav), '--config', 'mobilenet', '--num-workers', '3'],
+    )
     written = CliRunner().invoke(batch, [str(wav), '--output', str(output)])
 
     assert printed.exit_code == 0, printed.output
     assert json.loads(printed.output)['summary']['species_counts'] == {'EPFU': 1}
     assert written.exit_code == 0, written.output
     assert json.loads(output.read_text())['results'][0]['path'] == str(wav)
-    assert calls[0][1] == {'config': 'mobilenet'}
-    assert calls[1][1] == {'config': None}
+    assert calls[0][1] == {'config': 'mobilenet', 'num_workers': 3}
+    assert calls[1][1] == {'config': None, 'num_workers': 1}
 
 
 def test_example_and_root_cli(monkeypatch):

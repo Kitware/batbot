@@ -147,12 +147,14 @@ spectrogram step, or recursively process a large directory:
 
    batbot classify recording.jpg
    batbot classify-wav recording.wav --output recording.json
-   batbot classify-bulk ./recordings --input-type wav --output results.json
+   batbot classify-bulk ./recordings --input-type wav --num-workers 4 --output results.json
 
 Bulk JSON includes every per-file prediction plus ``label_counts``,
 ``species_counts`` (which excludes ``NOISE``), the noise count, failures, and
 mean confidence.  Generated WAV spectrograms are temporary by default; pass
 ``--spectrogram-dir ./spectrograms`` to retain them.
+``--num-workers`` runs multiple spectrogram inference jobs concurrently while
+sharing one validated ONNX Runtime session; results retain input order.
 
 The corresponding Python API follows the Scoutbot WIC ``pre`` / ``predict`` /
 ``post`` pattern.  A convenience call is usually sufficient:
@@ -163,7 +165,9 @@ The corresponding Python API follows the Scoutbot WIC ``pre`` / ``predict`` /
 
    result = classifier.classify('recording.jpg')[0]
    wav_result = classifier.classify_wav('recording.wav')
-   folder = classifier.classify_bulk(['./recordings'], input_type='wav')
+   folder = classifier.classify_bulk(
+       ['./recordings'], input_type='wav', num_workers=4
+   )
 
 To evaluate a labeled dataset arranged as ``LABEL/*.wav``, install
 ``scikit-learn`` and run the included performance example:

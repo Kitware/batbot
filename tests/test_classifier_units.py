@@ -168,6 +168,8 @@ def test_validate_session_checks_embedded_labels():
 def test_predict_rejects_invalid_batches_and_empty_windows():
     with pytest.raises(ValueError, match='batch_size'):
         list(inference.predict([], batch_size=0))
+    with pytest.raises(ValueError, match='num_workers'):
+        list(inference.predict([], num_workers=0))
 
     empty = np.empty((0, 224, 224, 3), dtype=np.uint8)
     with pytest.raises(ValueError, match='no image windows'):
@@ -224,12 +226,14 @@ def test_one_shot_classify_delegates_to_classifier(monkeypatch):
             providers=['CPUExecutionProvider'],
             top_k=2,
             sessions={'mobilenet': object()},
+            num_workers=6,
         )
         == []
     )
     assert captured[0]['batch_size'] == 4
     assert captured[0]['providers'] == ['CPUExecutionProvider']
     assert captured[0]['top_k'] == 2
+    assert captured[0]['num_workers'] == 6
     assert captured[1] == 'spectrogram.png'
 
 
@@ -245,6 +249,8 @@ def test_classifier_validates_options_and_accepts_an_existing_session():
         classifier.Classifier(batch_size=0)
     with pytest.raises(ValueError, match='top_k'):
         classifier.Classifier(top_k=0)
+    with pytest.raises(ValueError, match='num_workers'):
+        classifier.Classifier(num_workers=0)
 
     session = _Session()
     runner = classifier.Classifier(sessions={'mobilenet': session})
@@ -512,3 +518,18 @@ def test_classify_bulk_batches_images_and_uses_temporary_wav_outputs(monkeypatch
     assert captured[0][1]['output_folder'] is None
     assert captured[0][1]['out_file_stem'] is None
     assert captured[0][1]['keep_spectrograms'] is False
+
+
+def test_bulk_constructs_classifier_with_requested_worker_count(monkeypatch):
+    captured = []
+
+    class Runner:
+        def __init__(self, **kwargs):
+            captured.append(kwargs)
+
+    monkeypatch.setattr(bulk, 'Classifier', Runner)
+
+    output = bulk.classify_bulk([], num_workers=4)
+
+    assert output['results'] == []
+    assert captured[0]['num_workers'] == 4

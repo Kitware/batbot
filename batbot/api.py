@@ -176,6 +176,7 @@ def batch(
     filepaths: Sequence[str | Path],
     config: str | None = None,
     clean: bool = True,
+    num_workers: int = 1,
 ) -> list[ClassificationResult]:
     """Classify multiple WAV files using one reusable ONNX session.
 
@@ -185,7 +186,7 @@ def batch(
     del clean
     from batbot.classifier import Classifier
 
-    classifier = Classifier(config=config)
+    classifier = Classifier(config=config, num_workers=num_workers)
     return [classifier.classify_wav(filepath) for filepath in filepaths]
 
 

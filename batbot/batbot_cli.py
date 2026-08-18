@@ -405,6 +405,13 @@ def preprocess(
     default=None,
     type=str,
 )
+@click.option(
+    '--num-workers',
+    default=1,
+    show_default=True,
+    type=click.IntRange(min=1),
+    help='Number of concurrent ONNX inference workers.',
+)
 # @click.option(
 #     '--classifier_thresh',
 #     help='Classifier confidence threshold',
@@ -415,6 +422,7 @@ def batch(
     filepaths,
     config,
     output,
+    num_workers,
     # classifier_thresh,
 ):
     """Classify a list of WAV files (legacy alias for ``classify-wav``)."""
@@ -427,6 +435,7 @@ def batch(
     results = batbot.batch(
         filepaths,
         config=config,
+        num_workers=num_workers,
     )
 
     data = {
@@ -468,11 +477,23 @@ def _write_classification_output(data, output):
     show_default=True,
     type=click.IntRange(min=1),
 )
+@click.option(
+    '--num-workers',
+    default=1,
+    show_default=True,
+    type=click.IntRange(min=1),
+    help='Number of concurrent ONNX inference workers.',
+)
 @click.option('--top-k', default=5, show_default=True, type=click.IntRange(1, 35))
-def classify(spectrograms, output, batch_size, top_k):
+def classify(spectrograms, output, batch_size, num_workers, top_k):
     """Classify one or more spectrogram image files."""
     paths = classifier.discover_inputs(spectrograms, input_type='spectrogram')
-    results = classifier.classify(paths, batch_size=batch_size, top_k=top_k)
+    results = classifier.classify(
+        paths,
+        batch_size=batch_size,
+        top_k=top_k,
+        num_workers=num_workers,
+    )
     data = {'results': results, 'summary': classifier.summarize(results)}
     _write_classification_output(data, output)
 
@@ -498,8 +519,15 @@ def classify(spectrograms, output, batch_size, top_k):
     show_default=True,
     type=click.IntRange(min=1),
 )
+@click.option(
+    '--num-workers',
+    default=1,
+    show_default=True,
+    type=click.IntRange(min=1),
+    help='Number of concurrent ONNX inference workers.',
+)
 @click.option('--top-k', default=5, show_default=True, type=click.IntRange(1, 35))
-def classify_wav(wav_files, output, spectrogram_dir, batch_size, top_k):
+def classify_wav(wav_files, output, spectrogram_dir, batch_size, num_workers, top_k):
     """Create spectrograms from WAV files and classify each recording."""
     data = classifier.classify_bulk(
         wav_files,
@@ -507,6 +535,7 @@ def classify_wav(wav_files, output, spectrogram_dir, batch_size, top_k):
         batch_size=batch_size,
         top_k=top_k,
         spectrogram_output=spectrogram_dir,
+        num_workers=num_workers,
     )
     _write_classification_output(data, output)
 
@@ -540,6 +569,13 @@ def classify_wav(wav_files, output, spectrogram_dir, batch_size, top_k):
     show_default=True,
     type=click.IntRange(min=1),
 )
+@click.option(
+    '--num-workers',
+    default=1,
+    show_default=True,
+    type=click.IntRange(min=1),
+    help='Number of concurrent ONNX inference workers.',
+)
 @click.option('--top-k', default=5, show_default=True, type=click.IntRange(1, 35))
 def classify_bulk(
     inputs,
@@ -548,6 +584,7 @@ def classify_bulk(
     output,
     spectrogram_dir,
     batch_size,
+    num_workers,
     top_k,
 ):
     """Recursively classify a large folder and report species counts."""
@@ -558,6 +595,7 @@ def classify_bulk(
         batch_size=batch_size,
         top_k=top_k,
         spectrogram_output=spectrogram_dir,
+        num_workers=num_workers,
     )
     _write_classification_output(data, output)
 
