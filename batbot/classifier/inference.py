@@ -54,10 +54,12 @@ def pre(
         yield data, selected.key
 
 
-def _create_session(onnx_model: str, providers: Sequence[str] | None = None) -> Any:
+def _create_session(onnx_model: str, providers: Sequence[str] | None = None, reduced=False) -> Any:
     # Official non-Windows builds may otherwise create a persistent telemetry
     # device identifier as soon as ONNX Runtime initializes. Respect an
     # explicit user setting while making private inference the default.
+    reduced = os.getenv('BATBOT_REDUCED', reduced) in [True, '1', 'Yes', 'yes', 'YES']
+
     os.environ.setdefault('ORT_DISABLE_TELEMETRY', '1')
     try:
         import onnxruntime as ort
@@ -75,7 +77,14 @@ def _create_session(onnx_model: str, providers: Sequence[str] | None = None) -> 
 
     with warnings.catch_warnings():
         warnings.filterwarnings('ignore', category=UserWarning)
-        return ort.InferenceSession(onnx_model, providers=selected_providers)
+        if reduced:
+            print('Reducing ONNX inference threads to 2')
+            opts = ort.SessionOptions()
+            opts.intra_op_num_threads = 2
+            opts.inter_op_num_threads = 2
+        else:
+            opts = None
+        return ort.InferenceSession(onnx_model, providers=selected_providers, sess_options=opts)
 
 
 def _validate_session(session: Any, config: ClassifierConfig) -> None:
