@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pooch
 import pytest
+import tqdm
 
 import batbot.api as api
 from batbot import classifier, spectrogram
@@ -90,6 +91,23 @@ def test_pipeline_multi_wrapper_collects_outputs_and_failures(monkeypatch):
     assert metadata == ['good.wav.json']
     assert failures[0][0] == 'bad.wav'
     assert str(failures[0][1]) == 'bad recording'
+
+
+def test_pipeline_multi_wrapper_builds_default_stems_and_sets_lock(monkeypatch):
+    lock = object()
+    captured = []
+    monkeypatch.setattr(
+        api,
+        'pipeline',
+        lambda filepath, **kwargs: captured.append((filepath, kwargs)) or ([], [], None),
+    )
+    monkeypatch.setattr(tqdm.tqdm, 'set_lock', lambda value: captured.append(('lock', value)))
+
+    output = api.pipeline_multi_wrapper(['one.wav'], tqdm_lock=lock, quiet=True)
+
+    assert output == ([], [], [None], [])
+    assert captured[0] == ('lock', lock)
+    assert captured[1][1]['out_file_stem'] is None
 
 
 def test_pipeline_multi_wrapper_validates_stem_count():

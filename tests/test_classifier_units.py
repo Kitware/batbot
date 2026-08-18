@@ -1,5 +1,7 @@
 import hashlib
+import importlib
 import json
+from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -8,7 +10,9 @@ import numpy as np
 import pytest
 
 from batbot import classifier
-from batbot.classifier import bulk, dataloader, inference, model
+from batbot.classifier import bulk
+from batbot.classifier import config as config_module
+from batbot.classifier import dataloader, inference, model
 
 MOBILENET = classifier.resolve_config('mobilenet')
 
@@ -122,6 +126,16 @@ def test_resolve_config_normalizes_names_and_rejects_unknown_values():
         classifier.resolve_config('unknown')
 
 
+def test_invalid_default_config_fails_during_configuration_load(monkeypatch):
+    try:
+        with monkeypatch.context() as environment:
+            environment.setenv('BATBOT_CLASSIFIER_CONFIG', 'unknown')
+            with pytest.raises(ValueError, match='Unknown classifier configuration'):
+                importlib.reload(config_module)
+    finally:
+        importlib.reload(config_module)
+
+
 @pytest.mark.parametrize(
     ('session', 'message'),
     [
@@ -163,6 +177,60 @@ def test_predict_rejects_invalid_batches_and_empty_windows():
                 sessions={'mobilenet': _Session()},
             )
         )
+
+
+def test_pre_rejects_invalid_batch_size():
+    with pytest.raises(ValueError, match='batch_size'):
+        list(inference.pre([], batch_size=0))
+
+
+def test_create_session_preserves_explicit_providers(monkeypatch):
+    import onnxruntime as ort
+
+    calls = []
+    session = object()
+    monkeypatch.delenv('ORT_DISABLE_TELEMETRY', raising=False)
+    monkeypatch.setattr(ort, 'disable_telemetry_events', lambda: calls.append('telemetry'))
+    monkeypatch.setattr(
+        ort,
+        'InferenceSession',
+        lambda path, providers: calls.append((path, providers)) or session,
+    )
+
+    output = inference._create_session('model.onnx', providers=['CPUExecutionProvider'])
+
+    assert output is session
+    assert calls == ['telemetry', ('model.onnx', ['CPUExecutionProvider'])]
+
+
+def test_one_shot_classify_delegates_to_classifier(monkeypatch):
+    captured = []
+
+    class FakeClassifier:
+        def __init__(self, **kwargs):
+            captured.append(kwargs)
+
+        def classify(self, inputs):
+            captured.append(inputs)
+            return []
+
+    monkeypatch.setattr(inference, 'Classifier', FakeClassifier)
+
+    assert (
+        inference.classify(
+            'spectrogram.png',
+            batch_size=4,
+            config='mobilenet',
+            providers=['CPUExecutionProvider'],
+            top_k=2,
+            sessions={'mobilenet': object()},
+        )
+        == []
+    )
+    assert captured[0]['batch_size'] == 4
+    assert captured[0]['providers'] == ['CPUExecutionProvider']
+    assert captured[0]['top_k'] == 2
+    assert captured[1] == 'spectrogram.png'
 
 
 def test_post_rejects_wrong_score_count():
@@ -254,6 +322,43 @@ def test_bundled_model_missing_or_corrupt_uses_mirror(monkeypatch):
     assert model._bundled_model(MOBILENET) is None
 
 
+def test_bundled_model_materializes_nonfilesystem_resource(monkeypatch, tmp_path):
+    payload = b'embedded model'
+    source = tmp_path / 'source.onnx'
+    source.write_bytes(payload)
+    config = replace(
+        MOBILENET,
+        filename='embedded.onnx',
+        sha256=hashlib.sha256(payload).hexdigest(),
+    )
+
+    class Resource:
+        def joinpath(self, *parts):
+            return self
+
+        def is_file(self):
+            return True
+
+    @contextmanager
+    def extracted(resource):
+        yield source
+
+    monkeypatch.setattr(model, 'files', lambda package: Resource())
+    monkeypatch.setattr(model, 'as_file', extracted)
+    monkeypatch.setattr(model, '_cache_directory', lambda: tmp_path / 'cache')
+
+    materialized = model._bundled_model(config)
+
+    assert materialized == tmp_path / 'cache' / config.filename
+    assert materialized.read_bytes() == payload
+
+
+def test_model_cache_directory_is_versioned(monkeypatch, tmp_path):
+    monkeypatch.setattr(model.pooch, 'os_cache', lambda name: str(tmp_path / name))
+
+    assert model._cache_directory() == tmp_path / 'batbot' / 'models' / model.__version__
+
+
 def test_aggregate_results_weights_windows_and_rejects_empty_inputs():
     first = _result('first.png', confidence=0.2, window_count=1)
     second = _result('second.png', confidence=0.8, window_count=3)
@@ -329,6 +434,7 @@ def test_discover_inputs_filters_type_recursion_and_invalid_paths(tmp_path):
         bulk.discover_inputs(tmp_path, input_type='video')
     with pytest.raises(FileNotFoundError, match='does not exist'):
         bulk.discover_inputs(tmp_path / 'missing')
+    assert bulk.discover_inputs(tmp_path / 'ignored.txt') == []
 
 
 def test_summarize_empty_results():
@@ -382,3 +488,27 @@ def test_classify_bulk_recovers_individual_images_and_names_wav_outputs(monkeypa
     assert captured_wav['keep_spectrograms'] is True
     assert Path(captured_wav['out_file_stem']).parent == spectrogram_output
     assert Path(captured_wav['out_file_stem']).name.startswith('call.')
+
+
+def test_classify_bulk_batches_images_and_uses_temporary_wav_outputs(monkeypatch, tmp_path):
+    image = tmp_path / 'call.png'
+    wav = tmp_path / 'call.wav'
+    image.touch()
+    wav.touch()
+    runner = _Runner()
+    captured = []
+
+    def fake_classify_wav(path, **kwargs):
+        captured.append((path, kwargs))
+        return _result(path)
+
+    monkeypatch.setattr(bulk, 'classify_wav', fake_classify_wav)
+
+    output = bulk.classify_bulk(tmp_path, _runner=runner)
+
+    assert output['summary']['classified'] == 2
+    assert runner.calls == [([str(image)], 5)]
+    assert captured[0][0] == str(wav)
+    assert captured[0][1]['output_folder'] is None
+    assert captured[0][1]['out_file_stem'] is None
+    assert captured[0][1]['keep_spectrograms'] is False
