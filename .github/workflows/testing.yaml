@@ -1,9 +1,10 @@
-# This workflow will install Python dependencies, run tests and lint with multiple versions of Python
-# For more information see: https://help.github.com/actions/language-and-framework-guides/using-python-with-github-actions
-
 name: Testing
 
-on: push
+on:
+  push:
+  pull_request:
+    branches:
+      - main
 
 jobs:
   test:
@@ -11,14 +12,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ['3.9', '3.10', '3.11', '3.12']
+        python-version: ['3.11', '3.12', '3.13', '3.14']
 
     env:
       OS: ubuntu-latest
       PYTHON: ${{ matrix.python-version }}
 
     steps:
-      # Checkout and env setup
       - name: Checkout code
         uses: nschloe/action-cached-lfs-checkout@v1.2.3
         with:
@@ -28,25 +28,24 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
+          cache: pip
 
-      - name: Install dependencies
+      - name: Install project and test tools
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements/runtime.txt
-          pip install -r requirements/optional.txt
-          pip install -e .
+          python -m pip install -e ".[test]" pre-commit
 
       - name: Check with pre-commit
-        run: |
-          SKIP=hadolint pre-commit
-          SKIP=hadolint pre-commit run --all-files
+        run: SKIP=hadolint pre-commit run --all-files
+
+      - name: Check classifier types
+        run: mypy
 
       - name: Run tests and coverage
-        run: |
-          set -ex
-          pytest --cov=batbot --cov-append --cov-report=xml --random-order-seed=1
+        run: pytest --cov-report=xml --random-order-seed=1
 
       - name: Upload coverage to Codecov
+        if: matrix.python-version == '3.11'
         continue-on-error: true
         uses: codecov/codecov-action@v5
         with:

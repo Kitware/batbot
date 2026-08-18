@@ -34,7 +34,7 @@ Classifier
 Pipeline
 --------
 
-.. automodule:: batbot.__init__
+.. automodule:: batbot.api
    :members:
    :undoc-members:
    :show-inheritance:

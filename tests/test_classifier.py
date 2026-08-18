@@ -1,10 +1,13 @@
+from dataclasses import FrozenInstanceError
 from pathlib import Path
 
 import cv2
 import numpy as np
+import pooch
+import pytest
 
 from batbot import classifier
-from batbot.classifier import dataloader
+from batbot.classifier import dataloader, inference, model
 
 
 class _ModelValue:
@@ -58,8 +61,8 @@ def test_prepare_image_pads_narrow_spectrogram():
 
 def test_predict_batches_and_averages(monkeypatch):
     session = FakeSession()
-    monkeypatch.setattr(classifier, 'fetch', lambda **kwargs: 'model.onnx')
-    monkeypatch.setattr(classifier, '_create_session', lambda *args, **kwargs: session)
+    monkeypatch.setattr(inference, 'fetch', lambda **kwargs: 'model.onnx')
+    monkeypatch.setattr(inference, '_create_session', lambda *args, **kwargs: session)
     windows = np.zeros((5, 224, 224, 3), dtype=np.uint8)
 
     output = classifier.post(classifier.predict(iter([(windows, 'mobilenet')]), batch_size=2))
@@ -69,29 +72,77 @@ def test_predict_batches_and_averages(monkeypatch):
     assert output[0]['NOISE'] == 0.25
 
 
-def test_classify_spectrogram(monkeypatch, tmp_path):
+def test_classifier_reuses_its_session(monkeypatch, tmp_path):
     path = tmp_path / 'spectrogram.jpg'
     cv2.imwrite(str(path), np.zeros((300, 700, 3), dtype=np.uint8))
     session = FakeSession()
-    monkeypatch.setattr(classifier, 'fetch', lambda **kwargs: 'model.onnx')
-    monkeypatch.setattr(classifier, '_create_session', lambda *args, **kwargs: session)
+    created = []
 
-    result = classifier.classify(path, top_k=2)[0]
+    monkeypatch.setattr(inference, 'fetch', lambda **kwargs: 'model.onnx')
 
-    assert result['path'] == str(path)
-    assert result['label'] == 'EPFU'
-    assert result['confidence'] == 0.75
-    assert result['top'] == [
+    def create_session(*args, **kwargs):
+        created.append(True)
+        return session
+
+    monkeypatch.setattr(inference, '_create_session', create_session)
+    runner = classifier.Classifier(top_k=2)
+
+    first = runner.classify(path)[0]
+    second = runner.classify(path)[0]
+
+    assert len(created) == 1
+    assert first == second
+    assert first['top'] == [
         {'label': 'EPFU', 'confidence': 0.75},
         {'label': 'NOISE', 'confidence': 0.25},
     ]
 
 
-def test_fetch_uses_bundled_model():
-    model = Path(classifier.fetch())
+def test_config_is_immutable():
+    config = classifier.resolve_config('mobilenet')
 
-    assert model.name == classifier.MODEL_NAME
-    assert model.exists()
+    with pytest.raises(FrozenInstanceError):
+        config.key = 'changed'
+
+
+def test_fetch_uses_verified_bundled_model():
+    model_path = Path(classifier.fetch())
+
+    assert model_path.name == classifier.MODEL_NAME
+    assert model_path.exists()
+    assert pooch.file_hash(str(model_path), alg='sha256') == classifier.MODEL_HASH
+
+
+def test_fetch_uses_versioned_mirror_cache(monkeypatch, tmp_path):
+    downloaded = tmp_path / classifier.MODEL_NAME
+    downloaded.write_bytes(b'model')
+    calls = []
+    model._fetch_cached.cache_clear()
+    monkeypatch.setattr(model, '_bundled_model', lambda config: None)
+    monkeypatch.setattr(model, '_cache_directory', lambda: tmp_path / 'models' / '0.2.0')
+
+    def retrieve(**kwargs):
+        calls.append(kwargs)
+        return str(downloaded)
+
+    monkeypatch.setattr(model.pooch, 'retrieve', retrieve)
+
+    assert classifier.fetch() == str(downloaded)
+    assert calls[0]['known_hash'] == f'sha256:{classifier.MODEL_HASH}'
+    assert calls[0]['path'] == tmp_path / 'models' / '0.2.0'
+    model._fetch_cached.cache_clear()
+
+
+def test_real_model_inference(tmp_path):
+    path = tmp_path / 'spectrogram.png'
+    cv2.imwrite(str(path), np.zeros((300, 700, 3), dtype=np.uint8))
+
+    result = classifier.Classifier(top_k=3).classify(path)[0]
+
+    assert result['label'] in classifier.CLASSES
+    assert len(result['scores']) == len(classifier.CLASSES)
+    assert len(result['top']) == 3
+    assert result['window_count'] > 0
 
 
 def test_discover_inputs_and_summary(tmp_path):

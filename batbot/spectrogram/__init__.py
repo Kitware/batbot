@@ -26,7 +26,7 @@ from shapely.geometry import Point
 from shapely.geometry.polygon import Polygon
 from skimage import draw, measure
 
-from batbot import log
+from batbot._config import log
 
 # lp = LineProfiler()
 
@@ -1448,7 +1448,7 @@ def compute_wrapper(
             - list of spectrogram filepaths, split by 50k horizontal pixels
     """
     if not force_overwrite:
-        test_file = '{}.*'.format(out_file_stem)
+        test_file = f'{out_file_stem}.*'
         test_glob = glob(test_file)
         if len(test_glob) > 0:
             if not quiet:

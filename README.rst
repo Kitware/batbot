@@ -104,6 +104,8 @@ Here are the steps for extracting the compressed spectrogram:
 How to Install
 --------------
 
+BatBot requires Python 3.11 or newer.
+
 .. code-block:: bash
 
     pip install batbot
@@ -263,11 +265,11 @@ PyPI
 
 To upload the latest BatBot version to the Python Package Index (PyPI), follow the steps below:
 
-#. Edit ``batbot/__init__.py:65`` and set ``VERSION`` to the desired version
+#. Edit ``batbot/_version.py`` and set ``__version__`` to the desired version
 
     .. code-block:: python
 
-        VERSION = 'X.Y.Z'
+        __version__ = 'X.Y.Z'
 
 
 #. Push any changes and version update to the ``main`` branch on GitHub and wait for CI tests to pass
@@ -297,7 +299,7 @@ You can run the automated tests in the ``tests/`` folder by running:
 
 .. code-block:: bash
 
-    pip install -r requirements/optional.txt
+    pip install -e ".[test]"
     pytest
 
 You may also get a coverage percentage by running:
@@ -316,16 +318,15 @@ There is Sphinx documentation in the ``docs/`` folder, which can be built by run
 .. code-block:: bash
 
     cd docs/
-    pip install -r requirements/optional.txt
+    pip install -e "..[docs]"
     sphinx-build -M html . build/
 
 Logging
 -------
 
-The script uses Python's built-in logging functionality called ``logging``.  All print functions are replaced with ``log.info()``, which sends the output to two places:
-
-#. the terminal window, and
-#. the file `batbot.log`
+BatBot uses Python's standard ``logging`` package and installs a ``NullHandler``
+for library use. Applications can configure the ``batbot`` logger themselves or
+call ``batbot.utils.init_logging()`` for Rich console and rotating-file output.
 
 Code Formatting
 ---------------
@@ -337,10 +338,14 @@ Reference `pre-commit's installation instructions <https://pre-commit.com/#insta
 
 .. code-block:: bash
 
-    pip install -r requirements/optional.txt
+    pip install pre-commit
     pre-commit run --all-files
 
-The code base has been formatted by `Black <https://black.readthedocs.io/en/stable/>`_.  Furthermore, try to conform to ``PEP8``.  You should set up your preferred editor to use ``flake8`` as its Python linter, but pre-commit will ensure compliance before a git commit is completed.  This will use the ``flake8`` configuration within ``setup.cfg``, which ignores several errors and stylistic considerations.  See the ``setup.cfg`` file for a full and accurate listing of stylistic codes to ignore.
+The code base is formatted by `Black <https://black.readthedocs.io/en/stable/>`_
+and linted by Flake8. Black, isort, Flake8, pytest, coverage, mypy, packaging,
+and dependency settings are centralized in ``pyproject.toml``. The
+``flake8-pyproject`` plugin lets the unchanged Flake8 command consume that
+configuration.
 
 
 .. |Tests| image:: https://github.com/Kitware/batbot/actions/workflows/testing.yaml/badge.svg?branch=main

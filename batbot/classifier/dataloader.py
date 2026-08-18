@@ -1,30 +1,39 @@
 """Image loading and windowing for the BatBot species classifier."""
 
+from __future__ import annotations
+
 import os
+from collections.abc import Callable, Iterable
+from typing import Any
 
 import cv2
 import numpy as np
+from numpy.typing import NDArray
 
-BATCH_SIZE = int(os.getenv('CLASSIFIER_BATCH_SIZE', 10))
+from batbot.classifier.types import PathInput
+
+BATCH_SIZE = int(
+    os.getenv('BATBOT_CLASSIFIER_BATCH_SIZE', os.getenv('CLASSIFIER_BATCH_SIZE', '10'))
+)
 INPUT_SIZE = 224
 WINDOW_STRIDE = 100
 HORIZONTAL_SCALE = 0.5
 
 
-def _load_image(filepath):
+def _load_image(filepath: PathInput) -> NDArray[np.uint8]:
     """Load a spectrogram in the BGR byte layout used to train the model."""
     image = cv2.imread(str(filepath), cv2.IMREAD_COLOR)
     if image is None:
-        raise OSError('Unable to load spectrogram: {}'.format(filepath))
-    return image
+        raise OSError(f'Unable to load spectrogram: {filepath}')
+    return np.asarray(image, dtype=np.uint8)
 
 
 def _prepare_image(
-    image,
-    input_size=INPUT_SIZE,
-    window_stride=WINDOW_STRIDE,
-    horizontal_scale=HORIZONTAL_SCALE,
-):
+    image: NDArray[np.uint8] | None,
+    input_size: int = INPUT_SIZE,
+    window_stride: int = WINDOW_STRIDE,
+    horizontal_scale: float = HORIZONTAL_SCALE,
+) -> NDArray[np.uint8]:
     """Resize a spectrogram and split it into overlapping square windows.
 
     The training-time evaluation script resized a 300-pixel-high image by
@@ -64,11 +73,20 @@ def _prepare_image(
     return np.ascontiguousarray(np.stack(windows), dtype=np.uint8)
 
 
-def _init_transforms(**kwargs):
+def _init_transforms(
+    input_size: int = INPUT_SIZE,
+    window_stride: int = WINDOW_STRIDE,
+    horizontal_scale: float = HORIZONTAL_SCALE,
+) -> Callable[[NDArray[np.uint8]], NDArray[np.uint8]]:
     """Return the deterministic preprocessing transform used for inference."""
 
-    def transform(image):
-        return _prepare_image(image, **kwargs)
+    def transform(image: NDArray[np.uint8]) -> NDArray[np.uint8]:
+        return _prepare_image(
+            image,
+            input_size=input_size,
+            window_stride=window_stride,
+            horizontal_scale=horizontal_scale,
+        )
 
     return transform
 
@@ -76,7 +94,13 @@ def _init_transforms(**kwargs):
 class ImageFilePathList:
     """Small, dependency-free equivalent of Scoutbot's image path dataset."""
 
-    def __init__(self, filepaths, targets=None, transform=None, target_transform=None):
+    def __init__(
+        self,
+        filepaths: Iterable[PathInput],
+        targets: Iterable[Any] | None = None,
+        transform: Callable[[NDArray[np.uint8]], NDArray[np.uint8]] | None = None,
+        target_transform: Callable[[Any], Any] | None = None,
+    ) -> None:
         self.filepaths = [str(filepath) for filepath in filepaths]
         self.target_values = list(targets) if targets is not None else None
         if self.target_values is not None and len(self.filepaths) != len(self.target_values):
@@ -92,7 +116,7 @@ class ImageFilePathList:
             self.classes = sorted(set(self.target_values))
             self.class_to_idx = {class_name: index for index, class_name in enumerate(self.classes)}
 
-    def __getitem__(self, index):
+    def __getitem__(self, index: int) -> tuple[NDArray[np.uint8], ...]:
         sample = self.loader(self.filepaths[index])
         if self.transform is not None:
             sample = self.transform(sample)
@@ -105,5 +129,5 @@ class ImageFilePathList:
             target = self.target_transform(target)
         return sample, target
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.filepaths)

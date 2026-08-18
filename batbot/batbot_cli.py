@@ -24,7 +24,8 @@ import numpy as np
 from tqdm import tqdm
 
 import batbot
-from batbot import log
+from batbot import classifier
+from batbot._config import log
 
 
 def pipeline_filepath_validator(ctx, param, value):
@@ -187,7 +188,7 @@ def preprocess(
     in_filepaths = sorted(list(set(in_filepaths)))
 
     if len(in_filepaths) == 0:
-        print('Found no files given filepaths input {}'.format(filepaths))
+        print(f'Found no files given filepaths input {filepaths}')
         return
 
     # set up output paths for each input path
@@ -213,7 +214,7 @@ def preprocess(
     if not force_overwrite:
         idx_remove = np.full((len(in_filepaths),), False)
         for ii, out_file_stem in enumerate(out_filepath_stems):
-            test_file = '{}.*'.format(out_file_stem)
+            test_file = f'{out_file_stem}.*'
             test_glob = glob(test_file)
             if len(test_glob) > 0:
                 idx_remove[ii] = True
@@ -233,7 +234,7 @@ def preprocess(
         # Find all "extra" files that would be deleted in cleanup mode
         all_files = set(glob(join(root_outpath, '**/*'), recursive=True))
         for out_stem in out_filepath_stems_all:
-            out_files = glob('{}.*'.format(out_stem))
+            out_files = glob(f'{out_stem}.*')
             all_files -= set(out_files)
         dir_files = []
         # remove directories
@@ -243,18 +244,18 @@ def preprocess(
         all_files -= set(dir_files)
         extra_files = all_files
 
-    print('Located {} total unprocessed files'.format(len(in_filepaths)))
+    print(f'Located {len(in_filepaths)} total unprocessed files')
     print('\tFast processing mode {}'.format('OFF' if process_metadata else 'ON'))
     if process_metadata:
         print('\t\tFull bat call metadata will be produced')
     print('\tForce output overwrite {}'.format('ON' if force_overwrite else 'OFF'))
     if not force_overwrite:
-        print('\t\tSkipped {} files with already preprocessed outputs'.format(n_skipped))
-    print('\tNum parallel workers: {}'.format(num_workers))
+        print(f'\t\tSkipped {n_skipped} files with already preprocessed outputs')
+    print(f'\tNum parallel workers: {num_workers}')
     if no_file_structure:
         print('\tFlattening output file structure')
-    print('\tCurrent working dir: {}'.format(getcwd()))
-    print('\tOutput root dir: {}'.format(output_dir))
+    print(f'\tCurrent working dir: {getcwd()}')
+    print(f'\tOutput root dir: {output_dir}')
     print(
         '\tFirst input file -> output files: {} -> {}.*'.format(
             in_filepaths[0], out_filepath_stems[0]
@@ -272,7 +273,7 @@ def preprocess(
         print('\nDry run mode active - skipping all processing')
         data = {}
         data['input file, output file stem'] = [
-            (str(x), '{}.*'.format(y)) for x, y in zip(in_filepaths, out_filepath_stems)
+            (str(x), f'{y}.*') for x, y in zip(in_filepaths, out_filepath_stems)
         ]
         data['files to be deleted in cleanup'] = list(extra_files)
         if output_json is None:
@@ -280,7 +281,7 @@ def preprocess(
         else:
             with open(output_json, 'w') as outfile:
                 json.dump(data, outfile, indent=4)
-            print('Outputs written to {}'.format(output_json))
+            print(f'Outputs written to {output_json}')
         print('Complete.')
         return
 
@@ -298,7 +299,7 @@ def preprocess(
                 print('Aborting cleanup mode.')
                 return
         for file in extra_files:
-            print('Deleting file: {}'.format(file))
+            print(f'Deleting file: {file}')
             remove(file)
         print('Complete.')
         return
@@ -330,7 +331,7 @@ def preprocess(
                 data['compressed_path'].extend(compressed_paths)
                 data['metadata_path'].append(metadata_path)
             except Exception as e:
-                warnings.warn('WARNING: Pipeline failed for file {}'.format(file))
+                warnings.warn(f'WARNING: Pipeline failed for file {file}')
                 data['failed_files'].append((str(file), e))
     else:
         # Parallel execution.
@@ -360,7 +361,7 @@ def preprocess(
             num_workers=num_workers,
             threaded=False,
             quiet=True,
-            desc='Preprocessing chunks of files with {} workers'.format(num_workers),
+            desc=f'Preprocessing chunks of files with {num_workers} workers',
         )
         data['output_path'].extend(output_paths)
         data['compressed_path'].extend(compressed_paths)
@@ -379,7 +380,7 @@ def preprocess(
     else:
         with open(output_json, 'w') as outfile:
             json.dump(data, outfile, indent=4)
-        print('Outputs written to {}'.format(output_json))
+        print(f'Outputs written to {output_json}')
     print('\nComplete.')
 
     return data
@@ -429,7 +430,7 @@ def batch(
 
     data = {
         'results': results,
-        'summary': batbot.classifier.summarize(results),
+        'summary': classifier.summarize(results),
     }
 
     log.debug('Outputting results...')
@@ -446,7 +447,7 @@ def _write_classification_output(data, output):
         with open(output, 'w') as outfile:
             outfile.write(encoded)
             outfile.write('\n')
-        click.echo('Outputs written to {}'.format(output))
+        click.echo(f'Outputs written to {output}')
     else:
         click.echo(encoded)
 
@@ -462,16 +463,16 @@ def _write_classification_output(data, output):
 )
 @click.option(
     '--batch-size',
-    default=batbot.classifier.BATCH_SIZE,
+    default=classifier.BATCH_SIZE,
     show_default=True,
     type=click.IntRange(min=1),
 )
 @click.option('--top-k', default=5, show_default=True, type=click.IntRange(1, 35))
 def classify(spectrograms, output, batch_size, top_k):
     """Classify one or more spectrogram image files."""
-    paths = batbot.classifier.discover_inputs(spectrograms, input_type='spectrogram')
-    results = batbot.classifier.classify(paths, batch_size=batch_size, top_k=top_k)
-    data = {'results': results, 'summary': batbot.classifier.summarize(results)}
+    paths = classifier.discover_inputs(spectrograms, input_type='spectrogram')
+    results = classifier.classify(paths, batch_size=batch_size, top_k=top_k)
+    data = {'results': results, 'summary': classifier.summarize(results)}
     _write_classification_output(data, output)
 
 
@@ -492,14 +493,14 @@ def classify(spectrograms, output, batch_size, top_k):
 )
 @click.option(
     '--batch-size',
-    default=batbot.classifier.BATCH_SIZE,
+    default=classifier.BATCH_SIZE,
     show_default=True,
     type=click.IntRange(min=1),
 )
 @click.option('--top-k', default=5, show_default=True, type=click.IntRange(1, 35))
 def classify_wav(wav_files, output, spectrogram_dir, batch_size, top_k):
     """Create spectrograms from WAV files and classify each recording."""
-    data = batbot.classifier.classify_bulk(
+    data = classifier.classify_bulk(
         wav_files,
         input_type='wav',
         batch_size=batch_size,
@@ -534,7 +535,7 @@ def classify_wav(wav_files, output, spectrogram_dir, batch_size, top_k):
 )
 @click.option(
     '--batch-size',
-    default=batbot.classifier.BATCH_SIZE,
+    default=classifier.BATCH_SIZE,
     show_default=True,
     type=click.IntRange(min=1),
 )
@@ -549,7 +550,7 @@ def classify_bulk(
     top_k,
 ):
     """Recursively classify a large folder and report species counts."""
-    data = batbot.classifier.classify_bulk(
+    data = classifier.classify_bulk(
         inputs,
         input_type=input_type,
         recursive=recursive,

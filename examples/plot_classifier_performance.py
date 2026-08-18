@@ -143,7 +143,7 @@ def plot_confusion(axis, targets, predicted, labels, display, normalize, title):
 
 
 def plot_performance(paths, predictions, output_path):
-    classes = classifier.CONFIGS[classifier.DEFAULT_CONFIG]['classes']
+    classes = classifier.resolve_config().classes
     backward = {label: index for index, label in enumerate(classes)}
     unknown = sorted({path.parent.name for path in paths} - set(classes))
     if unknown:
@@ -200,15 +200,15 @@ def plot_performance(paths, predictions, output_path):
         labels,
         display,
         None,
-        'Confusion Matrix (counts)\n{}'.format(stats),
+        f'Confusion Matrix (counts)\n{stats}',
     )
     column_totals = absolute_plot.confusion_matrix.sum(axis=0)
     row_totals = absolute_plot.confusion_matrix.sum(axis=1)
     absolute_plot.ax_.set_xticklabels(
-        ['({}) {}'.format(value, label) for value, label in zip(column_totals, display)]
+        [f'({value}) {label}' for value, label in zip(column_totals, display)]
     )
     absolute_plot.ax_.set_yticklabels(
-        ['({}) {}'.format(value, label) for value, label in zip(row_totals, display)]
+        [f'({value}) {label}' for value, label in zip(row_totals, display)]
     )
     plot_confusion(
         confusion_axes[1],
@@ -217,7 +217,7 @@ def plot_performance(paths, predictions, output_path):
         labels,
         display,
         'true',
-        'Confusion Matrix (true-normalized)\n{}'.format(stats),
+        f'Confusion Matrix (true-normalized)\n{stats}',
     )
     plot_confusion(
         confusion_axes[2],
@@ -226,7 +226,7 @@ def plot_performance(paths, predictions, output_path):
         labels,
         display,
         'pred',
-        'Confusion Matrix (prediction-normalized)\n{}'.format(stats),
+        f'Confusion Matrix (prediction-normalized)\n{stats}',
     )
 
     if has_noise_examples:
@@ -267,7 +267,7 @@ def plot_performance(paths, predictions, output_path):
             roc_auc=auc,
         ).plot(
             ax=axes[1, 1],
-            name='MobileNet (AUC={:0.3f}, threshold={:0.3f})'.format(auc, roc_threshold),
+            name=f'MobileNet (AUC={auc:0.3f}, threshold={roc_threshold:0.3f})',
         )
         axes[1, 1].set_title('NOISE ROC curve')
 
@@ -295,12 +295,12 @@ def main():
 
     paths = sorted(path for path in args.data.rglob('*') if path.suffix.lower() == '.wav')
     if not paths:
-        parser.error('No WAV files found beneath {}'.format(args.data))
+        parser.error(f'No WAV files found beneath {args.data}')
 
     predictions = run_predictions(paths, cache_path=args.cache, batch_size=args.batch_size)
     stats = plot_performance(paths, predictions, args.output)
     print(stats)
-    print('Saved performance plot: {}'.format(args.output))
+    print(f'Saved performance plot: {args.output}')
 
 
 if __name__ == '__main__':
