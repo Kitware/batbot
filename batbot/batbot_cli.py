@@ -2,6 +2,7 @@
 """
 CLI for BatBot
 """
+
 import json
 import pprint
 import warnings
