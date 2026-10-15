@@ -20,6 +20,30 @@ extra for CPU inference (and optional Apple CoreML), or ``gpu`` for NVIDIA
 CUDA on Linux/Windows. Developers should install Git LFS before cloning so the
 model and WAV fixtures are downloaded, then install ``".[cpu,test]"``.
 
+Interactive tutorials and collaboration
+----------------------------------------
+
+Start with ``examples/notebooks/01_classify_your_files.ipynb`` to upload WAVs
+or spectrograms, inspect predictions, and download JSON/CSV reports and charts.
+The companion ``02_spectrogram_walkthrough.ipynb`` explains the STFT,
+normalization, candidates, contours, processing images, and ONNX window scores.
+Both notebooks run in Codespaces, Google Colab, or local Jupyter; an example
+recording makes Run All work before you supply your own files.
+
+* `Open a Codespace <https://codespaces.new/Kitware/batbot>`_ (select the branch
+  containing these tutorials), then select the **Python (BatBot)** kernel.
+* `Classify your files in Colab <https://colab.research.google.com/github/Kitware/batbot/blob/main/examples/notebooks/01_classify_your_files.ipynb>`_
+* `Explore the pipeline in Colab <https://colab.research.google.com/github/Kitware/batbot/blob/main/examples/notebooks/02_spectrogram_walkthrough.ipynb>`_
+* `Contributor guide <https://github.com/Kitware/batbot/blob/main/CONTRIBUTING.rst>`_
+  and `notebook setup guide <https://batbot.readthedocs.io/en/latest/notebooks.html>`_
+
+Code contributions and prototypes are encouraged in BatBot and
+`Kitware BatAI <https://github.com/Kitware/batai>`_. Monitoring **data contributions
+should go to the USGS NABat database**, following the
+`NABat contribution guidance <https://www.nabatmonitoring.org/upload-data>`_,
+not to GitHub issues or pull requests. Notebook exports are not NABat upload
+templates, and model predictions require appropriate review.
+
 Spectrogram Extraction
 ----------------------
 
@@ -36,8 +60,8 @@ Here are the steps for extracting the compressed spectrogram:
 
   * Trim STFT to minimum and maximum frequencies (5kHz to 120kHz)
   * Subtract the per-freqency median dB (reduce any spectral bias / shift)
-  * Set global dynamic range to -80 dB from the global maximum amplitude
-  * Calculate the global median non-minimum dB (greater than -80dB)
+  * Apply the current 120 dB gain relative to the global maximum amplitude, then clip
+  * Calculate the global median of the non-minimum intensities
   * Calculate the median absolute deviation (MAD)
   * Autogain the dynamic range to (5 * MAD) below the global amplitude median, if necessary
 

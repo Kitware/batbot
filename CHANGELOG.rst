@@ -4,6 +4,10 @@ Changelog
 Version 0.2.0
 -------------
 
+* Add Codespaces/local dev-container setup and standalone Colab-compatible notebooks.
+* Add bring-your-own-file classification, spectrogram/debug walkthroughs, charts, and reproducible exports.
+* Expand contributor/architecture guides and distinguish BatBot/BatAI code contributions from NABat data submissions.
+* Validate and execute clean notebooks in CI; modernize the Sphinx documentation dependency.
 * Add MobileNet ONNX species classification for spectrogram images and WAV files.
 * Add ``classify``, ``classify-wav``, and ``classify-bulk`` CLI commands.
 * Add mirrored model retrieval, bulk species summaries, and a performance plotting example.

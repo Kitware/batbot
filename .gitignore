@@ -15,6 +15,10 @@ __pycache__/
 docs/build/
 
 docs/_build/
+.ipynb_checkpoints/
+.venv/
+data/
+artifacts/notebooks/
 
 example*.jpg
 example*.json
