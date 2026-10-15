@@ -178,11 +178,14 @@ def test_fetch_uses_versioned_mirror_cache(monkeypatch, tmp_path):
     model._fetch_cached.cache_clear()
 
 
-def test_real_model_inference(tmp_path):
+@pytest.mark.parametrize('reduced', [False, True])
+def test_real_model_inference(tmp_path, monkeypatch, reduced):
+    monkeypatch.setenv('BATBOT_REDUCED', '1' if reduced else '0')
     path = tmp_path / 'spectrogram.png'
     cv2.imwrite(str(path), np.zeros((300, 700, 3), dtype=np.uint8))
 
-    results = classifier.Classifier(top_k=3, num_workers=2).classify([path, path])
+    runner = classifier.Classifier(top_k=3, num_workers=2, providers=['CPUExecutionProvider'])
+    results = runner.classify([path, path])
     result = results[0]
 
     assert results[0] == results[1]
@@ -190,6 +193,9 @@ def test_real_model_inference(tmp_path):
     assert len(result['scores']) == len(classifier.CLASSES)
     assert len(result['top']) == 3
     assert result['window_count'] > 0
+    options = runner.session.get_session_options()
+    assert options.intra_op_num_threads == (2 if reduced else 0)
+    assert options.inter_op_num_threads == (2 if reduced else 0)
 
 
 def test_discover_inputs_and_summary(tmp_path):

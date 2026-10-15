@@ -4,7 +4,7 @@ import json
 import os
 import shutil
 import warnings
-from glob import glob
+from glob import escape, glob
 from os.path import basename, exists, join, split, splitext
 
 import cv2
@@ -27,6 +27,7 @@ from shapely.geometry.polygon import Polygon
 from skimage import draw, measure
 
 from batbot._config import log
+from batbot._paths import native_path, write_image
 
 # lp = LineProfiler()
 
@@ -533,7 +534,7 @@ def plot_chirp_candidates(
         return
 
     for index, (start, stop) in enumerate(ranges):
-        cv2.imwrite(join(output_path, f'chirp.{index}.png'), stft_db[:, start:stop])
+        write_image(join(output_path, f'chirp.{index}.png'), stft_db[:, start:stop])
 
     candidate_dbs_ = candidate_dbs.copy()
     candidate_dbs[reject_idxs] = np.nan
@@ -738,7 +739,7 @@ def get_debug_path(output_folder, wav_filepath, enabled, purge=True, ensure=True
 def write_contour_debug_image(segment, index, counter, tag, output_path='.'):
     if output_path is None:
         return
-    cv2.imwrite(join(output_path, f'contour.{index}.{counter:02d}.{tag}.png'), segment)
+    write_image(join(output_path, f'contour.{index}.{counter:02d}.{tag}.png'), segment)
 
 
 def find_max_locations(data):
@@ -1447,8 +1448,11 @@ def compute_wrapper(
             - tuple of spectrogram's (min, max) frequency
             - list of spectrogram filepaths, split by 50k horizontal pixels
     """
-    if not force_overwrite:
-        test_file = f'{out_file_stem}.*'
+    wav_filepath = str(native_path(wav_filepath))
+    out_file_stem = None if out_file_stem is None else str(native_path(out_file_stem))
+    output_folder = None if output_folder is None else str(native_path(output_folder))
+    if not force_overwrite and out_file_stem is not None:
+        test_file = f'{escape(out_file_stem)}.*'
         test_glob = glob(test_file)
         if len(test_glob) > 0:
             if not quiet:
@@ -1478,9 +1482,7 @@ def compute_wrapper(
 
     debug_path = get_debug_path(output_folder, wav_filepath, enabled=debug)
     # Create output folder if it doesn't exist
-    if not os.path.exists(output_folder):
-        os.makedirs(output_folder)
-        assert exists(output_folder)
+    os.makedirs(output_folder or '.', exist_ok=True)
 
     # Load the spectrogram from a WAV file on disk
     with warnings.catch_warnings():
@@ -1808,18 +1810,18 @@ def compute_wrapper(
         segments[key] = np.hstack(value)
 
     if debug_path:
-        cv2.imwrite(join(debug_path, 'spectrogram.tif'), stft_db, [cv2.IMWRITE_TIFF_COMPRESSION, 1])
-        cv2.imwrite(join(debug_path, 'spectrogram.waveplot.png'), waveplot)
+        write_image(join(debug_path, 'spectrogram.tif'), stft_db, [cv2.IMWRITE_TIFF_COMPRESSION, 1])
+        write_image(join(debug_path, 'spectrogram.waveplot.png'), waveplot)
 
         if 'stft_db' in segments:
-            cv2.imwrite(
+            write_image(
                 join(debug_path, 'spectrogram.compressed.tif'),
                 segments['stft_db'],
                 [cv2.IMWRITE_TIFF_COMPRESSION, 1],
             )
 
         if 'waveplot' in segments:
-            cv2.imwrite(
+            write_image(
                 join(debug_path, 'spectrogram.compressed.waveplot.png'), segments['waveplot']
             )
 
@@ -1835,10 +1837,10 @@ def compute_wrapper(
             )
             temp_bot = np.around(temp_bot).astype(temp_top.dtype)
             temp = np.vstack((temp_top, temp_bot))
-            cv2.imwrite(join(debug_path, 'spectrogram.compressed.combined.png'), temp)
+            write_image(join(debug_path, 'spectrogram.compressed.combined.png'), temp)
 
         if 'costs' in segments:
-            cv2.imwrite(
+            write_image(
                 join(debug_path, 'spectrogram.compressed.threshold.tif'),
                 segments['costs'],
                 [cv2.IMWRITE_TIFF_COMPRESSION, 1],
@@ -1850,14 +1852,14 @@ def compute_wrapper(
             temp[:, :, 0][flags] = 0
             temp[:, :, 1][flags] = 0
             temp[:, :, 2][flags] = 0
-            cv2.imwrite(
+            write_image(
                 join(debug_path, 'spectrogram.compressed.threshold.jet.tif'),
                 temp,
                 [cv2.IMWRITE_TIFF_COMPRESSION, 1],
             )
 
         if 'canvas' in segments:
-            cv2.imwrite(
+            write_image(
                 join(debug_path, 'spectrogram.compressed.keypoints.tif'),
                 segments['canvas'],
                 [cv2.IMWRITE_TIFF_COMPRESSION, 1],
@@ -2050,7 +2052,7 @@ def compute_wrapper(
             if chunk.shape[1] == 0:
                 continue
             output_path = f'{out_file_stem}.{index + 1:02d}of{total:02d}.{tag}'
-            cv2.imwrite(output_path, chunk, [cv2.IMWRITE_JPEG_QUALITY, 80])
+            write_image(output_path, chunk, [cv2.IMWRITE_JPEG_QUALITY, 80])
             accumulator.append(output_path)
 
     log.debug(f'Rendered {len(output_paths)} spectrograms')

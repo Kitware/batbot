@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 import pooch
 import pytest
@@ -123,7 +124,8 @@ def test_parallel_pipeline_validates_work(monkeypatch):
         api.parallel_pipeline([['one.wav']], num_workers=0)
 
 
-def test_parallel_pipeline_combines_threaded_results(monkeypatch):
+@pytest.mark.parametrize('threaded', [True, False])
+def test_parallel_pipeline_combines_results_with_portable_workers(monkeypatch, threaded):
     class LockManager:
         def __enter__(self):
             return self
@@ -138,13 +140,24 @@ def test_parallel_pipeline_combines_threaded_results(monkeypatch):
         path = filepaths[0]
         return [f'{path}.png'], [f'{path}.compressed.png'], [f'{path}.json'], []
 
-    monkeypatch.setattr(api, 'Manager', LockManager)
+    def spawn_context(method):
+        assert method == 'spawn'
+        return SimpleNamespace(Manager=LockManager, get_start_method=lambda: method)
+
+    monkeypatch.setattr(api, 'get_context', spawn_context)
     monkeypatch.setattr(api, 'pipeline_multi_wrapper', fake_wrapper)
+
+    class SpawnPool(api.concurrent.futures.ThreadPoolExecutor):
+        def __init__(self, max_workers, mp_context):
+            assert mp_context.get_start_method() == 'spawn'
+            super().__init__(max_workers=max_workers)
+
+    monkeypatch.setattr(api.concurrent.futures, 'ProcessPoolExecutor', SpawnPool)
 
     output = api.parallel_pipeline(
         [['one.wav'], ['two.wav']],
         num_workers=2,
-        threaded=True,
+        threaded=threaded,
         quiet=True,
     )
 
@@ -160,30 +173,39 @@ def test_batch_reuses_one_classifier(monkeypatch):
     instances = []
 
     class FakeClassifier:
-        def __init__(self, config=None, num_workers=1):
+        def __init__(self, config=None, num_workers=1, providers=None):
             self.config = config
             self.num_workers = num_workers
             self.paths = []
             instances.append(self)
 
-        def classify_wav(self, filepath):
-            self.paths.append(filepath)
-            return _result(filepath)
+        def classify_bulk(self, filepaths, **kwargs):
+            self.paths.extend(filepaths)
+            self.options = kwargs
+            return {'results': [_result(path) for path in sorted(map(str, filepaths))]}
 
     monkeypatch.setattr(classifier, 'Classifier', FakeClassifier)
 
     results = api.batch(
-        ['one.wav', Path('two.wav')],
+        ['two.wav', Path('one.wav')],
         config='mobilenet',
         clean=False,
         num_workers=3,
+        preprocess_workers=2,
+        progress=False,
     )
 
     assert len(instances) == 1
     assert instances[0].config == 'mobilenet'
     assert instances[0].num_workers == 3
-    assert instances[0].paths == ['one.wav', Path('two.wav')]
-    assert [result['path'] for result in results] == ['one.wav', 'two.wav']
+    assert instances[0].paths == ['two.wav', Path('one.wav')]
+    assert instances[0].options == {
+        'input_type': 'wav',
+        'preprocess_workers': 2,
+        'progress': False,
+        'spectrogram_output': None,
+    }
+    assert [result['path'] for result in results] == ['two.wav', 'one.wav']
 
 
 def test_example_downloads_missing_wav_and_runs_pipeline(monkeypatch, tmp_path, capsys):
@@ -193,6 +215,7 @@ def test_example_downloads_missing_wav_and_runs_pipeline(monkeypatch, tmp_path, 
     retrieve_calls = []
     times = iter([10.0, 12.5])
     monkeypatch.setattr(api, 'PROJECT_ROOT', tmp_path / 'missing-project')
+    monkeypatch.setenv('BATBOT_CACHE_DIR', str(tmp_path / 'cache 空間'))
     monkeypatch.setattr(
         pooch,
         'retrieve',
@@ -208,6 +231,8 @@ def test_example_downloads_missing_wav_and_runs_pipeline(monkeypatch, tmp_path, 
     api.example()
 
     assert retrieve_calls[0]['known_hash'].startswith('sha256:')
+    assert retrieve_calls[0]['path'] == tmp_path / 'cache 空間' / 'examples'
+    assert retrieve_calls[0]['fname'] == 'example1.wav'
     assert pipeline_calls[0][0] == downloaded
-    assert pipeline_calls[0][1]['out_file_stem'] == 'output/downloaded'
+    assert pipeline_calls[0][1]['out_file_stem'] == str(Path('output') / 'downloaded')
     assert '2.5 seconds' in capsys.readouterr().out

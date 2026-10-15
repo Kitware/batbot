@@ -10,6 +10,7 @@ import cv2
 import numpy as np
 from numpy.typing import NDArray
 
+from batbot._paths import read_image
 from batbot.classifier.types import PathInput
 
 BATCH_SIZE = int(
@@ -22,9 +23,7 @@ HORIZONTAL_SCALE = 0.5
 
 def _load_image(filepath: PathInput) -> NDArray[np.uint8]:
     """Load a spectrogram in the BGR byte layout used to train the model."""
-    image = cv2.imread(str(filepath), cv2.IMREAD_COLOR)
-    if image is None:
-        raise OSError(f'Unable to load spectrogram: {filepath}')
+    image = read_image(filepath)
     return np.asarray(image, dtype=np.uint8)
 
 

@@ -10,14 +10,15 @@ from __future__ import annotations
 import concurrent.futures
 import time
 from collections.abc import Sequence
-from multiprocessing import Manager
+from multiprocessing import get_context
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from batbot._config import log
+from batbot._paths import cache_root, native_path
 
 if TYPE_CHECKING:
-    from batbot.classifier.types import ClassificationResult
+    from batbot.classifier.types import ClassificationItem
 
 PACKAGE_ROOT = Path(__file__).resolve().parent
 PROJECT_ROOT = PACKAGE_ROOT.parent
@@ -46,9 +47,9 @@ def pipeline(
     from batbot.spectrogram import compute
 
     output_paths, compressed_paths, metadata_path, _ = compute(
-        str(filepath),
-        out_file_stem=out_file_stem,
-        output_folder=output_folder,
+        str(native_path(filepath)),
+        out_file_stem=None if out_file_stem is None else str(native_path(out_file_stem)),
+        output_folder=None if output_folder is None else str(native_path(output_folder)),
         fast_mode=fast_mode,
         force_overwrite=force_overwrite,
         quiet=quiet,
@@ -136,16 +137,21 @@ def parallel_pipeline(
     num_workers = min(len(in_file_chunks), num_workers)
     if num_workers <= 0:
         raise ValueError('num_workers must be positive')
+    executor_options = {'max_workers': num_workers}
+    if not threaded:
+        # Keep native-library threads and GPU state out of child processes on
+        # Linux, matching Windows/macOS and the classification bulk pipeline.
+        executor_options['mp_context'] = get_context('spawn')
 
     output_paths: list[str] = []
     compressed_paths: list[str] = []
     metadata_paths: list[str | None] = []
     failed_files: list[tuple[str, Exception]] = []
 
-    with Manager() as lock_manager:
+    with get_context('spawn').Manager() as lock_manager:
         tqdm_lock = lock_manager.Lock()
         with tqdm(total=len(in_file_chunks), disable=quiet, desc=desc) as progress:
-            with executor_cls(max_workers=num_workers) as executor:
+            with executor_cls(**executor_options) as executor:
                 futures = [
                     executor.submit(
                         pipeline_multi_wrapper,
@@ -177,17 +183,34 @@ def batch(
     config: str | None = None,
     clean: bool = True,
     num_workers: int = 1,
-) -> list[ClassificationResult]:
-    """Classify multiple WAV files using one reusable ONNX session.
+    *,
+    preprocess_workers: int = 1,
+    progress: bool = True,
+    providers: Sequence[str] | None = None,
+    spectrogram_output: str | Path | None = None,
+) -> list[ClassificationItem]:
+    """Preprocess and classify WAV files or directories using one ONNX session.
 
-    ``clean`` remains for API compatibility; temporary spectrograms are always
-    removed by the classifier.
+    Results include per-file failures. ``clean`` remains for API compatibility;
+    use ``spectrogram_output`` to retain generated images.
     """
     del clean
     from batbot.classifier import Classifier
 
-    classifier = Classifier(config=config, num_workers=num_workers)
-    return [classifier.classify_wav(filepath) for filepath in filepaths]
+    classifier = Classifier(config=config, num_workers=num_workers, providers=providers)
+    results = classifier.classify_bulk(
+        filepaths,
+        input_type='wav',
+        preprocess_workers=preprocess_workers,
+        progress=progress,
+        spectrogram_output=spectrogram_output,
+    )['results']
+    # Preserve the legacy list API's order and duplicate entries for explicit
+    # files; directory inputs use bulk discovery's deterministic ordering.
+    by_path = {result['path']: result for result in results}
+    if all(str(native_path(path)) in by_path for path in filepaths):
+        return [by_path[str(native_path(path))] for path in filepaths]
+    return results
 
 
 def example() -> None:
@@ -206,6 +229,8 @@ def example() -> None:
                     'sha256:391efce5433d1057caddb4ce07b9712c523d6a815e4ee9e64b62973569982925'
                 ),
                 progressbar=True,
+                path=cache_root() / 'examples',
+                fname='example1.wav',
             )
         )
 

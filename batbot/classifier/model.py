@@ -12,6 +12,7 @@ from pathlib import Path
 import pooch
 
 from batbot._config import QUIET, log
+from batbot._paths import cache_root
 from batbot._version import __version__
 from batbot.classifier.config import DEFAULT_CONFIG, resolve_config
 from batbot.classifier.types import ClassifierConfig
@@ -19,7 +20,7 @@ from batbot.classifier.types import ClassifierConfig
 
 def _cache_directory() -> Path:
     """Return BatBot's versioned model cache directory."""
-    return Path(pooch.os_cache('batbot')) / 'models' / __version__
+    return cache_root() / 'models' / __version__
 
 
 def _has_expected_hash(path: Path, config: ClassifierConfig) -> bool:

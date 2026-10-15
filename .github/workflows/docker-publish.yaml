@@ -1,92 +1,149 @@
 name: Docker
 
 on:
+  pull_request:
+    branches: [main]
   push:
-    branches:
-      - main
-    tags:
-      - v*
-  # schedule:
-  #   - cron: '0 16 * * *' # Every day at 16:00 UTC (~09:00 PT)
+    branches: [main]
+    tags: [v*]
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
-  # Push container image to GitHub Packages and Docker Hub.
-  # See also https://docs.docker.com/docker-hub/builds/
-  deploy:
-    name: Docker image build
+  test:
+    name: Container (${{ matrix.target }}, ${{ matrix.platform }})
     runs-on: ubuntu-latest
-
-    env:
-      DOCKER_BUILDKIT: 1
-      DOCKER_CLI_EXPERIMENTAL: enabled
-
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: cpu
+            platform: linux/amd64
+            cache: cpu-amd64
+          - target: cpu
+            platform: linux/arm64
+            cache: cpu-arm64
+          - target: gpu
+            platform: linux/amd64
+            cache: gpu-amd64
     steps:
-      - name: Checkout code
-        uses: nschloe/action-cached-lfs-checkout@v1.2.3
+      - uses: actions/checkout@v6
         with:
-          exclude: "examples/example[2-4].wav"
-
+          lfs: true
       - uses: docker/setup-qemu-action@v3
-        name: Set up QEMU
-        id: qemu
-
       - uses: docker/setup-buildx-action@v3
-        name: Set up Docker Buildx
-        id: buildx
+      - name: Build image without publishing
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: ${{ matrix.target }}
+          platforms: ${{ matrix.platform }}
+          load: true
+          tags: batbot:test
+          cache-from: type=gha,scope=batbot-${{ matrix.cache }}
+          cache-to: type=gha,mode=max,scope=batbot-${{ matrix.cache }}
+      - name: Check CLI and installed dependencies
+        run: |
+          docker run --rm --platform ${{ matrix.platform }} batbot:test --help
+          docker run --rm --platform ${{ matrix.platform }} --entrypoint python batbot:test -m pip check
+      # Standard hosted runners have no NVIDIA hardware. Even the GPU image
+      # must work on CPU and must contain only its selected runtime package.
+      - name: Check non-root read-only container, WAV workers, and model
+        run: >-
+          docker run --rm --platform ${{ matrix.platform }}
+          --read-only --tmpfs /tmp --entrypoint python batbot:test
+          -I /usr/local/share/batbot/smoke_install.py
+          --runtime ${{ matrix.target }} --provider cpu
 
-      - name: Available platforms
-        run: echo ${{ steps.buildx.outputs.platforms }}
+  gpu-hardware:
+    name: NVIDIA GPU kernel execution
+    needs: test
+    # Only trusted pushes/manual runs can reach an organization's GPU runner.
+    if: >-
+      vars.BATBOT_GPU_RUNNER != '' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ${{ fromJSON(vars.BATBOT_GPU_RUNNER || '"ubuntu-latest"') }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          lfs: true
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@v3
+      - name: Check host NVIDIA driver
+        run: nvidia-smi
+      - name: Build CUDA image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: gpu
+          platforms: linux/amd64
+          load: true
+          tags: batbot:gpu-test
+          cache-from: type=gha,scope=batbot-gpu-amd64
+      - name: Require actual CUDA inference inside Docker
+        run: >-
+          docker run --rm --gpus all --read-only --tmpfs /tmp
+          --entrypoint python batbot:gpu-test
+          -I /usr/local/share/batbot/smoke_install.py
+          --runtime gpu --provider cuda
 
-      # Log into container registries
-      - name: Login to DockerHub
+  publish:
+    name: Publish ${{ matrix.target }} image
+    needs: [test, gpu-hardware]
+    if: >-
+      always() && github.event_name == 'push' &&
+      needs.test.result == 'success' &&
+      (needs.gpu-hardware.result == 'success' || needs.gpu-hardware.result == 'skipped')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: cpu
+            platforms: linux/amd64,linux/arm64
+            suffix: ''
+          - target: gpu
+            platforms: linux/amd64
+            suffix: -gpu
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          lfs: true
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ vars.BATBOT_DOCKERHUB_USERNAME }}
           password: ${{ secrets.BATBOT_DOCKERHUB_TOKEN }}
-
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      # Push bleeding-edge image ("<branch name>" tag) to registries
-      - name: Bleeding Edge Docker Hub (Default Option)
-        run: |
-          TAG=$(echo ${GITHUB_REF_NAME} | sed 's/\//-/')
-          echo "IMAGE_TAG=${TAG}" >> $GITHUB_ENV
-
-      # Push nightly image ("nightly" tag) to registries
-      - name: Nightly Docker Hub
-        if: github.event_name == 'schedule'
-        run: |
-          echo "IMAGE_TAG=nightly" >> $GITHUB_ENV
-
-      # Push tagged image ("<symantic version>" tag) to registries
-      - name: Tagged Docker Hub
-        if: ${{ github.event_name == 'push' && startsWith(github.event.ref, 'refs/tags/v') }}
-        run: |
-          VERSION=$(echo ${GITHUB_REF} | sed 's#.*/v##')
-          echo "IMAGE_TAG=${VERSION}" >> $GITHUB_ENV
-
-      # Build images
-      - name: Build Batbot
-        run: |
-          docker buildx build \
-              -t kitware/batbot:${{ env.IMAGE_TAG }} \
-              -t ghcr.io/kitware/batbot:${{ env.IMAGE_TAG }} \
-              --platform linux/amd64 \
-              --push \
-              .
-
-      # Also push latest image
-      - name: Build Batbot
-        if: ${{ github.event_name == 'push' && startsWith(github.event.ref, 'refs/tags/v') }}
-        run: |
-          docker buildx build \
-              -t kitware/batbot:latest \
-              -t ghcr.io/kitware/batbot:latest \
-              --platform linux/amd64 \
-              --push \
-              .
+      - name: Image tags
+        id: metadata
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            kitware/batbot
+            ghcr.io/kitware/batbot
+          flavor: suffix=${{ matrix.suffix }},onlatest=true
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+      - name: Publish tested images
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: ${{ matrix.target }}
+          platforms: ${{ matrix.platforms }}
+          push: true
+          tags: ${{ steps.metadata.outputs.tags }}
+          labels: ${{ steps.metadata.outputs.labels }}

@@ -81,8 +81,14 @@ def test_batch_cli_writes_stdout_and_json(monkeypatch, tmp_path):
     assert json.loads(printed.output)['summary']['species_counts'] == {'EPFU': 1}
     assert written.exit_code == 0, written.output
     assert json.loads(output.read_text())['results'][0]['path'] == str(wav)
-    assert calls[0][1] == {'config': 'mobilenet', 'num_workers': 3}
-    assert calls[1][1] == {'config': None, 'num_workers': 1}
+    default_options = {
+        'preprocess_workers': 1,
+        'progress': True,
+        'providers': None,
+        'spectrogram_output': None,
+    }
+    assert calls[0][1] == {'config': 'mobilenet', 'num_workers': 3, **default_options}
+    assert calls[1][1] == {'config': None, 'num_workers': 1, **default_options}
 
 
 def test_example_and_root_cli(monkeypatch):

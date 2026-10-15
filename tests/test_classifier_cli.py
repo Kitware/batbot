@@ -2,6 +2,7 @@ import json
 
 import cv2
 import numpy as np
+import pytest
 from click.testing import CliRunner
 
 from batbot import classifier
@@ -80,3 +81,51 @@ def test_classify_bulk_cli(monkeypatch, tmp_path):
     assert invocation.exit_code == 0, invocation.output
     assert json.loads(invocation.output)['results'][0]['path'] == str(tmp_path)
     assert calls[0]['num_workers'] == 5
+
+
+@pytest.mark.parametrize('command', [classify_wav, classify_bulk])
+def test_wav_cli_forwards_gpu_and_preprocessing_controls(monkeypatch, tmp_path, command):
+    wav = tmp_path / 'recording.wav'
+    wav.touch()
+    calls = []
+    monkeypatch.setattr(
+        classifier,
+        'classify_bulk',
+        lambda paths, **kwargs: calls.append(kwargs) or _bulk(paths[0]),
+    )
+
+    result = CliRunner().invoke(
+        command,
+        [str(wav), '--preprocess-workers', '3', '--provider', 'cuda', '--no-progress'],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert calls[0]['preprocess_workers'] == 3
+    assert calls[0]['providers'] == ['CUDAExecutionProvider']
+    assert calls[0]['progress'] is False
+
+
+@pytest.mark.parametrize(
+    'provider,expected',
+    [
+        ('cpu', 'CPUExecutionProvider'),
+        ('coreml', 'CoreMLExecutionProvider'),
+    ],
+)
+def test_image_cli_forwards_provider_and_progress_controls(
+    monkeypatch, tmp_path, provider, expected
+):
+    image = tmp_path / 'spectrogram.jpg'
+    image.touch()
+    calls = []
+    monkeypatch.setattr(
+        classifier,
+        'classify',
+        lambda paths, **kwargs: calls.append(kwargs) or [_result(paths[0])],
+    )
+
+    result = CliRunner().invoke(classify, [str(image), '--provider', provider, '--no-progress'])
+
+    assert result.exit_code == 0, result.output
+    assert calls[0]['providers'] == [expected]
+    assert calls[0]['progress'] is False

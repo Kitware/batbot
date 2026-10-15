@@ -20,6 +20,7 @@ import numpy as np
 from tqdm import tqdm
 
 from batbot import classifier
+from batbot._paths import native_path
 
 CUSTOM_LABEL = 'NOISE'
 SUPPORTED_EXTENSIONS = frozenset({'.wav', '.jpg', '.jpeg'})
@@ -99,14 +100,16 @@ def discover_inputs(data_path):
     """Return supported WAV and JPG inputs in deterministic order."""
     return sorted(
         path
-        for path in data_path.rglob('*')
+        for path in native_path(data_path).rglob('*')
         if path.is_file() and path.suffix.lower() in SUPPORTED_EXTENSIONS
     )
 
 
 def run_predictions(paths, cache_path=None, batch_size=classifier.BATCH_SIZE, num_workers=1):
+    paths = [native_path(path) for path in paths]
+    cache_path = None if cache_path is None else native_path(cache_path)
     if cache_path is not None and cache_path.exists():
-        with cache_path.open() as cache_file:
+        with cache_path.open(encoding='utf8') as cache_file:
             cached = json.load(cache_file)
         predictions = cached['results']
         cached_paths = [result['path'] for result in predictions]
@@ -127,7 +130,7 @@ def run_predictions(paths, cache_path=None, batch_size=classifier.BATCH_SIZE, nu
 
     if cache_path is not None:
         cache_path.parent.mkdir(parents=True, exist_ok=True)
-        with cache_path.open('w') as cache_file:
+        with cache_path.open('w', encoding='utf8') as cache_file:
             json.dump({'results': predictions}, cache_file, indent=2)
     return predictions
 
@@ -303,11 +306,13 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         'data',
-        type=Path,
+        type=native_path,
         help='Root directory containing labeled WAV, JPG, or JPEG files',
     )
-    parser.add_argument('--output', type=Path, default=Path('classifier-performance.png'))
-    parser.add_argument('--cache', type=Path, default=None, help='Optional prediction JSON cache')
+    parser.add_argument('--output', type=native_path, default=Path('classifier-performance.png'))
+    parser.add_argument(
+        '--cache', type=native_path, default=None, help='Optional prediction JSON cache'
+    )
     parser.add_argument('--batch-size', type=int, default=classifier.BATCH_SIZE)
     parser.add_argument(
         '--num-workers',

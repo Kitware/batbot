@@ -1,38 +1,56 @@
-FROM nvidia/cuda:12.9.1-cudnn-runtime-ubuntu24.04
+# syntax=docker/dockerfile:1
+ARG PYTHON_VERSION=3.12
+FROM python:${PYTHON_VERSION}-slim-bookworm AS wheel
 
-ENV GRADIO_SERVER_NAME=0.0.0.0
+WORKDIR /src
+COPY pyproject.toml README.rst LICENSE MANIFEST.in ./
+COPY batbot ./batbot
+# hadolint ignore=DL3013
+RUN python -m pip wheel --no-cache-dir --no-deps --wheel-dir /wheels .
 
-ENV GRADIO_SERVER_PORT=7860
+FROM python:${PYTHON_VERSION}-slim-bookworm AS base
 
-# Install apt packages
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    MPLBACKEND=Agg \
+    ORT_DISABLE_TELEMETRY=1 \
+    BATBOT_CACHE_DIR=/tmp/batbot-cache \
+    MPLCONFIGDIR=/tmp/matplotlib \
+    NUMBA_CACHE_DIR=/tmp/numba
+
+# WAV decoding, OpenMP, cuDNN's zlib dependency, and signal forwarding.
 # hadolint ignore=DL3008
-RUN set -ex \
- && apt-get update \
- && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        g++ \
-        git \
-        build-essential \
-        ffmpeg \
-        libsm6 \
-        libtirpc-dev \
-        libxext6 \
-        python3.12-dev \
-        python3.12-venv \
-        python3-pip \
- && rm -rf /var/cache/apt \
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends libgomp1 libsndfile1 tini zlib1g \
  && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /code
+COPY --from=wheel /wheels /wheels
+# hadolint ignore=DL3013
+RUN python -m pip install --no-cache-dir /wheels/*.whl \
+ && rm -rf /wheels \
+ && groupadd --gid 10001 batbot \
+ && useradd --create-home --uid 10001 --gid 10001 batbot \
+ && mkdir -p /work /home/batbot/.cache \
+ && chown -R batbot:batbot /work /home/batbot
 
-COPY ./ /code
+COPY scripts/smoke_install.py /usr/local/share/batbot/smoke_install.py
+WORKDIR /work
+ENTRYPOINT ["/usr/bin/tini", "--", "batbot"]
+CMD ["--help"]
 
-# hadolint ignore=DL3003,DL3013
-RUN python3 -m venv /venv \
- && /venv/bin/pip install --no-cache-dir -e .
- # && if [ "$(uname -m)" != "aarch64" ] \
- #       ; then \
- #       /venv/bin/pip uninstall -y onnxruntime \
- #       /venv/bin/pip install --no-cache-dir onnxruntime-gpu \
- #       ; fi
+# Runtime extras supply CUDA/cuDNN libraries matching the ORT build.
+# The host supplies the NVIDIA driver through the NVIDIA Container Toolkit.
+FROM base AS gpu
+ENV NVIDIA_VISIBLE_DEVICES=all NVIDIA_DRIVER_CAPABILITIES=compute,utility
+# hadolint ignore=DL3013
+RUN python -m pip install --no-cache-dir "batbot[gpu]" \
+ && python -m pip check
+USER 10001:10001
 
-CMD ["/venv/bin/python", "app.py"]
+# CPU is the default image, including on Apple Silicon Docker hosts.
+FROM base AS cpu
+# hadolint ignore=DL3013
+RUN python -m pip install --no-cache-dir "batbot[cpu]" \
+ && python -m pip check
+USER 10001:10001

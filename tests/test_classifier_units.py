@@ -54,10 +54,12 @@ class _Session:
 
 
 class _Runner:
+    num_workers = 1
+
     def __init__(self):
         self.calls = []
 
-    def classify(self, paths, top_k=5):
+    def classify(self, paths, top_k=5, progress=None):
         paths = [str(path) for path in paths]
         self.calls.append((paths, top_k))
         return [_result(path) for path in paths]
@@ -186,20 +188,28 @@ def test_pre_rejects_invalid_batch_size():
         list(inference.pre([], batch_size=0))
 
 
-def test_create_session_preserves_explicit_providers(monkeypatch):
+@pytest.mark.parametrize('reduced', [False, True])
+def test_create_session_preserves_explicit_providers(monkeypatch, reduced):
     import onnxruntime as ort
 
     calls = []
-    session = object()
+    session = SimpleNamespace(get_providers=lambda: ['CPUExecutionProvider'])
     monkeypatch.delenv('ORT_DISABLE_TELEMETRY', raising=False)
+    monkeypatch.delenv('BATBOT_REDUCED', raising=False)
     monkeypatch.setattr(ort, 'disable_telemetry_events', lambda: calls.append('telemetry'))
-    monkeypatch.setattr(
-        ort,
-        'InferenceSession',
-        lambda path, providers: calls.append((path, providers)) or session,
-    )
 
-    output = inference._create_session('model.onnx', providers=['CPUExecutionProvider'])
+    def create(path, *, sess_options, providers):
+        assert isinstance(sess_options, ort.SessionOptions)
+        assert sess_options.intra_op_num_threads == (2 if reduced else 0)
+        assert sess_options.inter_op_num_threads == (2 if reduced else 0)
+        calls.append((path, providers))
+        return session
+
+    monkeypatch.setattr(ort, 'InferenceSession', create)
+
+    output = inference._create_session(
+        'model.onnx', providers=['CPUExecutionProvider'], reduced=reduced
+    )
 
     assert output is session
     assert calls == ['telemetry', ('model.onnx', ['CPUExecutionProvider'])]
@@ -212,7 +222,7 @@ def test_one_shot_classify_delegates_to_classifier(monkeypatch):
         def __init__(self, **kwargs):
             captured.append(kwargs)
 
-        def classify(self, inputs):
+        def classify(self, inputs, progress=None):
             captured.append(inputs)
             return []
 
@@ -360,6 +370,7 @@ def test_bundled_model_materializes_nonfilesystem_resource(monkeypatch, tmp_path
 
 
 def test_model_cache_directory_is_versioned(monkeypatch, tmp_path):
+    monkeypatch.delenv('BATBOT_CACHE_DIR', raising=False)
     monkeypatch.setattr(model.pooch, 'os_cache', lambda name: str(tmp_path / name))
 
     assert model._cache_directory() == tmp_path / 'batbot' / 'models' / model.__version__
@@ -465,7 +476,7 @@ def test_classify_bulk_recovers_individual_images_and_names_wav_outputs(monkeypa
     captured_wav = {}
 
     class FaultTolerantRunner(_Runner):
-        def classify(self, paths, top_k=5):
+        def classify(self, paths, top_k=5, progress=None):
             paths = [str(path) for path in paths]
             if len(paths) > 1:
                 raise OSError('batch decoder failed')
@@ -473,11 +484,11 @@ def test_classify_bulk_recovers_individual_images_and_names_wav_outputs(monkeypa
                 raise ValueError('invalid image')
             return [_result(paths[0])]
 
-    def fake_classify_wav(path, **kwargs):
+    def fake_pipeline(path, **kwargs):
         captured_wav.update(kwargs)
-        return _result(path)
+        return [str(spectrogram_output / 'generated.png')], [], None
 
-    monkeypatch.setattr(bulk, 'classify_wav', fake_classify_wav)
+    monkeypatch.setattr('batbot.api.pipeline', fake_pipeline)
     output = bulk.classify_bulk(
         tmp_path,
         spectrogram_output=spectrogram_output,
@@ -490,8 +501,7 @@ def test_classify_bulk_recovers_individual_images_and_names_wav_outputs(monkeypa
     assert next(item for item in output['results'] if item['path'] == str(bad))['error'] == (
         'invalid image'
     )
-    assert captured_wav['output_folder'] == spectrogram_output
-    assert captured_wav['keep_spectrograms'] is True
+    assert captured_wav['output_folder'] == str(spectrogram_output)
     assert Path(captured_wav['out_file_stem']).parent == spectrogram_output
     assert Path(captured_wav['out_file_stem']).name.startswith('call.')
 
@@ -504,20 +514,21 @@ def test_classify_bulk_batches_images_and_uses_temporary_wav_outputs(monkeypatch
     runner = _Runner()
     captured = []
 
-    def fake_classify_wav(path, **kwargs):
-        captured.append((path, kwargs))
-        return _result(path)
+    def fake_prepare_wav(path, output_folder):
+        captured.append((path, output_folder))
+        return [str(Path(output_folder) / 'generated.png')]
 
-    monkeypatch.setattr(bulk, 'classify_wav', fake_classify_wav)
+    monkeypatch.setattr(bulk, '_prepare_wav', fake_prepare_wav)
 
     output = bulk.classify_bulk(tmp_path, _runner=runner)
 
     assert output['summary']['classified'] == 2
-    assert runner.calls == [([str(image)], 5)]
+    assert runner.calls[0] == ([str(image)], 5)
+    assert len(runner.calls) == 2
     assert captured[0][0] == str(wav)
-    assert captured[0][1]['output_folder'] is None
-    assert captured[0][1]['out_file_stem'] is None
-    assert captured[0][1]['keep_spectrograms'] is False
+    assert not Path(captured[0][1]).exists()
+    wav_result = next(result for result in output['results'] if result['path'] == str(wav))
+    assert wav_result['spectrogram_paths'] == []
 
 
 def test_bulk_constructs_classifier_with_requested_worker_count(monkeypatch):
@@ -526,6 +537,7 @@ def test_bulk_constructs_classifier_with_requested_worker_count(monkeypatch):
     class Runner:
         def __init__(self, **kwargs):
             captured.append(kwargs)
+            self.num_workers = kwargs['num_workers']
 
     monkeypatch.setattr(bulk, 'Classifier', Runner)
 

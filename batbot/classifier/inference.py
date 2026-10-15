@@ -4,16 +4,19 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import warnings
 from collections import deque
 from collections.abc import Iterable, Iterator, MutableMapping, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
+from contextlib import redirect_stdout
 from typing import Any
 
 import numpy as np
 import tqdm
 
 from batbot._config import QUIET, log
+from batbot._paths import native_path
 from batbot.classifier.config import DEFAULT_CONFIG, resolve_config
 from batbot.classifier.dataloader import BATCH_SIZE, INPUT_SIZE, ImageFilePathList, _init_transforms
 from batbot.classifier.model import fetch
@@ -28,8 +31,8 @@ from batbot.classifier.types import (
 
 def _as_filepaths(inputs: PathInput | Iterable[PathInput]) -> list[str]:
     if isinstance(inputs, (str, os.PathLike)):
-        return [str(inputs)]
-    return [str(filepath) for filepath in inputs]
+        return [str(native_path(inputs))]
+    return [str(native_path(filepath)) for filepath in inputs]
 
 
 def pre(
@@ -65,26 +68,76 @@ def _create_session(onnx_model: str, providers: Sequence[str] | None = None, red
         import onnxruntime as ort
     except ImportError as error:  # pragma: no cover - a declared runtime dependency
         raise ImportError(
-            'ONNX inference requires onnxruntime; install batbot with its runtime dependencies'
+            'ONNX inference requires a runtime: install "batbot[cpu]" on macOS, Linux, or '
+            'Windows, or "batbot[gpu]" for NVIDIA CUDA on Linux/Windows.'
         ) from error
     ort.disable_telemetry_events()
 
-    selected_providers = providers
+    available = ort.get_available_providers()
+    selected_providers = list(providers) if providers is not None else None
     if selected_providers is None:
-        available = ort.get_available_providers()
         preferred = ['CUDAExecutionProvider', 'CPUExecutionProvider']
         selected_providers = [provider for provider in preferred if provider in available]
 
-    with warnings.catch_warnings():
-        warnings.filterwarnings('ignore', category=UserWarning)
-        if reduced:
-            print('Reducing ONNX inference threads to 2')
-            opts = ort.SessionOptions()
-            opts.intra_op_num_threads = 2
-            opts.inter_op_num_threads = 2
-        else:
-            opts = None
-        return ort.InferenceSession(onnx_model, opts, providers=selected_providers)
+    wants_cuda = 'CUDAExecutionProvider' in selected_providers
+    require_cuda = providers is not None and 'CPUExecutionProvider' not in selected_providers
+    cuda_help = (
+        'CUDA inference requires an NVIDIA driver and matching CUDA/cuDNN runtime libraries. '
+        'Install "batbot[gpu]" (onnxruntime-gpu[cuda,cudnn]) in place of the CPU runtime, choosing '
+        'a build compatible with your driver and any installed PyTorch. See '
+        'https://onnxruntime.ai/docs/execution-providers/CUDA-ExecutionProvider.html'
+    )
+    if wants_cuda and 'CUDAExecutionProvider' not in available:
+        message = f'CUDAExecutionProvider is not available. {cuda_help}'
+        if require_cuda:
+            raise RuntimeError(message)
+        warnings.warn(f'{message} Falling back to CPU inference.', RuntimeWarning, stacklevel=2)
+        selected_providers.remove('CUDAExecutionProvider')
+        wants_cuda = False
+    if wants_cuda:
+        preload = getattr(ort, 'preload_dlls', None)
+        if preload is not None:
+            # ORT can print loader diagnostics; preserve CLI JSON on stdout.
+            with redirect_stdout(sys.stderr):
+                preload()
+
+    wants_coreml = 'CoreMLExecutionProvider' in selected_providers
+    require_coreml = wants_coreml and 'CPUExecutionProvider' not in selected_providers
+    if wants_coreml and 'CoreMLExecutionProvider' not in available:
+        raise RuntimeError('CoreMLExecutionProvider is unavailable; use "batbot[cpu]" on macOS.')
+
+    opts = ort.SessionOptions()
+    session_kwargs = {}
+    if wants_coreml:
+        # CoreML cannot reliably compile this model's unbounded batch axis.
+        # Bind one window per run, without converting or changing the ONNX file.
+        opts.add_free_dimension_override_by_name('batch_size', 1)
+        session_kwargs['provider_options'] = [
+            (
+                {'ModelFormat': 'MLProgram', 'RequireStaticInputShapes': '1'}
+                if provider == 'CoreMLExecutionProvider'
+                else {}
+            )
+            for provider in selected_providers
+        ]
+    if reduced:
+        log.debug('Reducing ONNX inference threads to 2')
+        opts.intra_op_num_threads = 2
+        opts.inter_op_num_threads = 2
+
+    session = ort.InferenceSession(
+        onnx_model, sess_options=opts, providers=selected_providers, **session_kwargs
+    )
+    active_providers = session.get_providers()
+    if wants_cuda and 'CUDAExecutionProvider' not in active_providers:
+        message = f'CUDAExecutionProvider failed to initialize. {cuda_help}'
+        if require_cuda:
+            raise RuntimeError(message)
+        warnings.warn(f'{message} Falling back to CPU inference.', RuntimeWarning, stacklevel=2)
+    if require_coreml and 'CoreMLExecutionProvider' not in active_providers:
+        raise RuntimeError('CoreMLExecutionProvider failed to initialize on this Mac.')
+    log.info('ONNX Runtime execution providers: %s', active_providers)
+    return session
 
 
 def _validate_session(session: Any, config: ClassifierConfig) -> None:
@@ -111,7 +164,10 @@ def _predict_windows(
     batch_size: int,
 ) -> np.ndarray[Any, Any]:
     """Run one spectrogram's windows through a reusable ONNX session."""
-    input_name = session.get_inputs()[0].name
+    input_info = session.get_inputs()[0]
+    input_name = input_info.name
+    if getattr(input_info, 'shape', [None])[0] == 1:
+        batch_size = 1  # CoreML sessions bind the dynamic batch axis to one window.
     outputs = []
     for start in range(0, len(windows), batch_size):
         output = session.run(None, {input_name: windows[start : start + batch_size]})
@@ -129,6 +185,7 @@ def predict(
     sessions: MutableMapping[str, Any] | None = None,
     total: int | None = None,
     num_workers: int = 1,
+    progress: bool | None = None,
 ) -> Iterator[tuple[np.ndarray[Any, Any], str]]:
     """Run ordered ONNX inference, optionally across multiple worker threads."""
     if batch_size <= 0:
@@ -137,12 +194,6 @@ def predict(
         raise ValueError('num_workers must be positive')
 
     active_sessions = {} if sessions is None else sessions
-    items = tqdm.tqdm(
-        gen,
-        disable=QUIET,
-        desc='Classifying spectrograms',
-        total=total,
-    )
 
     def session_for(config_value: str | ClassifierConfig) -> tuple[Any, str]:
         config = resolve_config(config_value)
@@ -153,29 +204,41 @@ def predict(
             active_sessions[config.key] = session
         return session, config.key
 
-    if num_workers == 1:
-        for windows, config_value in items:
-            session, config_key = session_for(config_value)
-            yield _predict_windows(windows, session, batch_size), config_key
-        return
+    with tqdm.tqdm(
+        disable=QUIET if progress is None else not progress,
+        desc='Classifying spectrograms',
+        total=total,
+        unit='spectrogram',
+    ) as progress_bar:
+        if num_workers == 1:
+            for windows, config_value in gen:
+                session, config_key = session_for(config_value)
+                predictions = _predict_windows(windows, session, batch_size)
+                progress_bar.update(1)
+                yield predictions, config_key
+            return
 
-    pending: deque[tuple[Future[np.ndarray[Any, Any]], str]] = deque()
-    with ThreadPoolExecutor(
-        max_workers=num_workers,
-        thread_name_prefix='batbot-onnx',
-    ) as executor:
-        for windows, config_value in items:
-            session, config_key = session_for(config_value)
-            pending.append(
-                (executor.submit(_predict_windows, windows, session, batch_size), config_key)
-            )
-            if len(pending) >= num_workers:
+        pending: deque[tuple[Future[np.ndarray[Any, Any]], str]] = deque()
+        with ThreadPoolExecutor(
+            max_workers=num_workers,
+            thread_name_prefix='batbot-onnx',
+        ) as executor:
+            for windows, config_value in gen:
+                session, config_key = session_for(config_value)
+                pending.append(
+                    (executor.submit(_predict_windows, windows, session, batch_size), config_key)
+                )
+                if len(pending) >= num_workers:
+                    future, completed_config = pending.popleft()
+                    predictions = future.result()
+                    progress_bar.update(1)
+                    yield predictions, completed_config
+
+            while pending:
                 future, completed_config = pending.popleft()
-                yield future.result(), completed_config
-
-        while pending:
-            future, completed_config = pending.popleft()
-            yield future.result(), completed_config
+                predictions = future.result()
+                progress_bar.update(1)
+                yield predictions, completed_config
 
 
 def post(
@@ -261,6 +324,7 @@ class Classifier:
         self,
         inputs: PathInput | Iterable[PathInput],
         top_k: int | None = None,
+        progress: bool | None = None,
     ) -> list[ClassificationResult]:
         """Classify one or more spectrogram images."""
         if top_k is not None and top_k <= 0:
@@ -286,6 +350,7 @@ class Classifier:
                 sessions={self.config.key: self.session},
                 total=len(filepaths),
                 num_workers=self.num_workers,
+                progress=progress,
             )
         )
         result_top_k = self.top_k if top_k is None else top_k
@@ -301,6 +366,7 @@ class Classifier:
         output_folder: PathInput | None = None,
         out_file_stem: PathInput | None = None,
         keep_spectrograms: bool = False,
+        progress: bool = True,
     ) -> ClassificationResult:
         """Generate spectrograms and classify a WAV using this session."""
         from batbot.classifier.bulk import classify_wav
@@ -311,6 +377,7 @@ class Classifier:
             output_folder=output_folder,
             out_file_stem=out_file_stem,
             keep_spectrograms=keep_spectrograms,
+            progress=progress,
             _runner=self,
         )
 
@@ -321,6 +388,8 @@ class Classifier:
         recursive: bool = True,
         top_k: int | None = None,
         spectrogram_output: PathInput | None = None,
+        preprocess_workers: int = 1,
+        progress: bool = True,
     ) -> BulkClassification:
         """Classify a directory tree using this session."""
         from batbot.classifier.bulk import classify_bulk
@@ -331,6 +400,8 @@ class Classifier:
             recursive=recursive,
             top_k=self.top_k if top_k is None else top_k,
             spectrogram_output=spectrogram_output,
+            preprocess_workers=preprocess_workers,
+            progress=progress,
             _runner=self,
         )
 
@@ -343,6 +414,7 @@ def classify(
     top_k: int = 5,
     sessions: MutableMapping[str, Any] | None = None,
     num_workers: int = 1,
+    progress: bool | None = None,
 ) -> list[ClassificationResult]:
     """Classify spectrograms with a one-shot or externally shared session."""
     return Classifier(
@@ -352,4 +424,4 @@ def classify(
         top_k=top_k,
         sessions=sessions,
         num_workers=num_workers,
-    ).classify(inputs)
+    ).classify(inputs, progress=progress)

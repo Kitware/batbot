@@ -5,14 +5,17 @@ from __future__ import annotations
 import tempfile
 from collections import Counter
 from collections.abc import Iterable, MutableMapping, Sequence
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from contextlib import ExitStack
 from hashlib import sha256
+from multiprocessing import get_context
 from pathlib import Path
 from typing import Any, TypeGuard
 
 import numpy as np
 import tqdm
 
-from batbot._config import QUIET
+from batbot._paths import discover_files, native_path
 from batbot.classifier.config import (
     DEFAULT_CONFIG,
     SPECTROGRAM_EXTENSIONS,
@@ -74,6 +77,7 @@ def classify_wav(
     keep_spectrograms: bool = False,
     sessions: MutableMapping[str, Any] | None = None,
     num_workers: int = 1,
+    progress: bool = True,
     *,
     _runner: Classifier | None = None,
 ) -> ClassificationResult:
@@ -88,18 +92,18 @@ def classify_wav(
         sessions=sessions,
         num_workers=num_workers,
     )
-    filepath_string = str(filepath)
+    filepath_string = str(native_path(filepath))
     if output_folder is not None or out_file_stem is not None or keep_spectrograms:
-        selected_output = './output' if output_folder is None else str(output_folder)
+        selected_output = './output' if output_folder is None else str(native_path(output_folder))
         output_paths, _, _, _ = compute(
             filepath_string,
             output_folder=selected_output,
-            out_file_stem=None if out_file_stem is None else str(out_file_stem),
+            out_file_stem=None if out_file_stem is None else str(native_path(out_file_stem)),
             fast_mode=False,
             force_overwrite=True,
             quiet=True,
         )
-        results = runner.classify(output_paths, top_k=top_k)
+        results = runner.classify(output_paths, top_k=top_k, progress=progress)
         return _aggregate_results(filepath_string, results, output_paths, top_k=top_k)
 
     with tempfile.TemporaryDirectory(prefix='batbot-classifier-') as temp_dir:
@@ -110,7 +114,7 @@ def classify_wav(
             force_overwrite=True,
             quiet=True,
         )
-        results = runner.classify(output_paths, top_k=top_k)
+        results = runner.classify(output_paths, top_k=top_k, progress=progress)
         output = _aggregate_results(filepath_string, results, output_paths, top_k=top_k)
         output['spectrogram_paths'] = []
         return output
@@ -131,22 +135,7 @@ def discover_inputs(
     elif input_type == 'wav':
         extensions = WAV_EXTENSIONS
 
-    discovered = []
-    for value in _as_filepaths(inputs):
-        path = Path(value)
-        if path.is_file():
-            if path.suffix.lower() in extensions:
-                discovered.append(str(path))
-        elif path.is_dir():
-            iterator = path.rglob('*') if recursive else path.glob('*')
-            discovered.extend(
-                str(candidate)
-                for candidate in iterator
-                if candidate.is_file() and candidate.suffix.lower() in extensions
-            )
-        else:
-            raise FileNotFoundError(f'Input does not exist: {value}')
-    return sorted(set(discovered))
+    return discover_files(_as_filepaths(inputs), extensions, recursive=recursive)
 
 
 def summarize(results: Sequence[ClassificationItem]) -> ClassificationSummary:
@@ -167,6 +156,45 @@ def summarize(results: Sequence[ClassificationItem]) -> ClassificationSummary:
     }
 
 
+def _prepare_wav(filepath: str, output_folder: str) -> list[str]:
+    """Use the spectrogram pipeline in an isolated preprocessing worker."""
+    from batbot.api import pipeline
+
+    digest = sha256(str(Path(filepath).resolve()).encode('utf8')).hexdigest()[:10]
+    output_stem = Path(output_folder) / f'{Path(filepath).stem}.{digest}'
+    outputs, _, _ = pipeline(
+        filepath,
+        output_folder=output_folder,
+        out_file_stem=str(output_stem),
+        fast_mode=False,
+        force_overwrite=True,
+        quiet=True,
+    )
+    if not outputs:
+        raise ValueError(f'No spectrograms were created for {filepath}')
+    return outputs
+
+
+def _classify_spectrograms(
+    paths: list[str], runner: Classifier, top_k: int
+) -> dict[str, ClassificationItem]:
+    """Batch image inference, isolating unreadable inputs when necessary."""
+    if not paths:
+        return {}
+    try:
+        return {
+            result['path']: result for result in runner.classify(paths, top_k=top_k, progress=False)
+        }
+    except (OSError, ValueError):
+        results: dict[str, ClassificationItem] = {}
+        for path in paths:
+            try:
+                results[path] = runner.classify([path], top_k=top_k, progress=False)[0]
+            except Exception as error:
+                results[path] = {'path': path, 'error': str(error)}
+        return results
+
+
 def classify_bulk(
     inputs: PathInput | Iterable[PathInput],
     input_type: InputType = 'auto',
@@ -177,10 +205,19 @@ def classify_bulk(
     top_k: int = 5,
     spectrogram_output: PathInput | None = None,
     num_workers: int = 1,
+    preprocess_workers: int = 1,
+    progress: bool = True,
     *,
     _runner: Classifier | None = None,
 ) -> BulkClassification:
-    """Classify a directory tree while reusing a single ONNX session."""
+    """Preprocess WAVs in bounded batches and reuse one ONNX inference session.
+
+    ``preprocess_workers`` controls separate spectrogram processes, while
+    ``num_workers`` controls inference threads. Progress is written to stderr
+    and can be disabled independently of BatBot's logging settings.
+    """
+    if preprocess_workers <= 0:
+        raise ValueError('preprocess_workers must be positive')
     paths = discover_inputs(inputs, input_type=input_type, recursive=recursive)
     runner = _runner or Classifier(
         config=config,
@@ -192,35 +229,93 @@ def classify_bulk(
     results_by_path: dict[str, ClassificationItem] = {}
 
     image_paths = [path for path in paths if Path(path).suffix.lower() in SPECTROGRAM_EXTENSIONS]
-    if image_paths:
-        try:
-            for result in runner.classify(image_paths, top_k=top_k):
-                results_by_path[result['path']] = result
-        except (OSError, ValueError):
-            for path in image_paths:
-                try:
-                    results_by_path[path] = runner.classify([path], top_k=top_k)[0]
-                except Exception as error:  # pragma: no cover - decoder errors vary by platform
-                    results_by_path[path] = {'path': path, 'error': str(error)}
-
     wav_paths = [path for path in paths if Path(path).suffix.lower() in WAV_EXTENSIONS]
-    for path in tqdm.tqdm(wav_paths, disable=QUIET, desc='Classifying WAV files'):
-        try:
-            out_file_stem = None
-            if spectrogram_output is not None:
-                digest = sha256(str(Path(path).resolve()).encode('utf8')).hexdigest()[:10]
-                output_name = f'{Path(path).stem}.{digest}'
-                out_file_stem = str(Path(spectrogram_output) / output_name)
-            results_by_path[path] = classify_wav(
-                path,
-                top_k=top_k,
-                output_folder=spectrogram_output,
-                out_file_stem=out_file_stem,
-                keep_spectrograms=spectrogram_output is not None,
-                _runner=runner,
+    chunk_size = max(8, preprocess_workers, runner.num_workers)
+    with ExitStack() as stack:
+        preprocessing = stack.enter_context(
+            tqdm.tqdm(
+                total=len(wav_paths),
+                desc='Creating spectrograms',
+                unit='file',
+                disable=not progress or not wav_paths,
+                position=0,
             )
-        except Exception as error:  # pragma: no cover - spectrogram errors vary by input
-            results_by_path[path] = {'path': path, 'error': str(error)}
+        )
+        classification = stack.enter_context(
+            tqdm.tqdm(
+                total=len(paths),
+                desc='Classifying files',
+                unit='file',
+                disable=not progress or not paths,
+                position=1 if wav_paths else 0,
+            )
+        )
+        executor = None
+        if wav_paths and preprocess_workers > 1:
+            # Spawn avoids inheriting ONNX Runtime threads and GPU state.
+            executor = stack.enter_context(
+                ProcessPoolExecutor(
+                    max_workers=preprocess_workers,
+                    mp_context=get_context('spawn'),
+                )
+            )
+
+        for start in range(0, len(image_paths), chunk_size):
+            batch_paths = image_paths[start : start + chunk_size]
+            results_by_path.update(_classify_spectrograms(batch_paths, runner, top_k))
+            classification.update(len(batch_paths))
+
+        for start in range(0, len(wav_paths), chunk_size):
+            batch_paths = wav_paths[start : start + chunk_size]
+            with ExitStack() as batch_stack:
+                output_folder = (
+                    str(native_path(spectrogram_output))
+                    if spectrogram_output is not None
+                    else batch_stack.enter_context(
+                        tempfile.TemporaryDirectory(prefix='batbot-classifier-')
+                    )
+                )
+                # Create the shared destination before workers enter the
+                # spectrogram pipeline, whose directory creation is not atomic.
+                Path(output_folder).mkdir(parents=True, exist_ok=True)
+                prepared: dict[str, list[str]] = {}
+                if executor is None:
+                    for path in batch_paths:
+                        try:
+                            prepared[path] = _prepare_wav(path, output_folder)
+                        except Exception as error:
+                            results_by_path[path] = {'path': path, 'error': str(error)}
+                        preprocessing.update(1)
+                else:
+                    futures = {
+                        executor.submit(_prepare_wav, path, output_folder): path
+                        for path in batch_paths
+                    }
+                    for future in as_completed(futures):
+                        path = futures[future]
+                        try:
+                            prepared[path] = future.result()
+                        except Exception as error:
+                            results_by_path[path] = {'path': path, 'error': str(error)}
+                        preprocessing.update(1)
+
+                generated = [image for path in batch_paths for image in prepared.get(path, [])]
+                predictions = _classify_spectrograms(generated, runner, top_k)
+                for path in batch_paths:
+                    if path in prepared:
+                        images = prepared[path]
+                        per_image = [predictions[image] for image in images]
+                        failures = [result for result in per_image if _is_failure(result)]
+                        if failures:
+                            results_by_path[path] = {'path': path, 'error': failures[0]['error']}
+                        else:
+                            results_by_path[path] = _aggregate_results(
+                                path,
+                                [result for result in per_image if _is_success(result)],
+                                images if spectrogram_output is not None else [],
+                                top_k=top_k,
+                            )
+                    classification.update(1)
 
     results = [results_by_path[path] for path in paths]
     return {'results': results, 'summary': summarize(results)}

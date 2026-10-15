@@ -6,7 +6,13 @@ include LICENSE
 
 # Include examples files for testing
 include examples/example1.wav
+include examples/example2.wav
 include examples/plot_classifier_performance.py
+include scripts/smoke_install.py
+
+# Support container builds from source archives as well as Git checkouts
+include Dockerfile
+include .dockerignore
 
 # Include the classifier model in source distributions
 recursive-include batbot/classifier/models/onnx *.onnx
