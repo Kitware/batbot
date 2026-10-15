@@ -84,7 +84,7 @@ def _create_session(onnx_model: str, providers: Sequence[str] | None = None, red
             opts.inter_op_num_threads = 2
         else:
             opts = None
-        return ort.InferenceSession(onnx_model, providers=selected_providers, sess_options=opts)
+        return ort.InferenceSession(onnx_model, opts, providers=selected_providers)
 
 
 def _validate_session(session: Any, config: ClassifierConfig) -> None:
