@@ -1427,7 +1427,7 @@ def compute_wrapper(
     plot_uncompressed_amplitude=False,
     include_original_sr=False,
     time_buffer_ms=1.0,
-    debug=True,
+    debug=False,
     **kwargs,
 ):
     """

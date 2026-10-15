@@ -41,7 +41,7 @@ def pipeline(
     plot_uncompressed_amplitude: bool = False,
     include_original_sr: bool = False,
     time_buffer_ms: float = 1.0,
-    debug: bool = True,
+    debug: bool = False,
 ) -> tuple[list[str], list[str], str | None]:
     """Generate spectrograms and metadata for one WAV file."""
     from batbot.spectrogram import compute
@@ -217,7 +217,7 @@ def example() -> None:
     """Run the spectrogram pipeline on the packaged example WAV."""
     import pooch
 
-    wav_filepath = PROJECT_ROOT / 'examples' / 'example3.wav'
+    wav_filepath = PROJECT_ROOT / 'examples' / 'example1.wav'
     if not wav_filepath.exists():
         wav_filepath = Path(
             pooch.retrieve(
