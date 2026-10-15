@@ -197,6 +197,11 @@ and documentation builds treat warnings as errors. Docker checks cover CPU
 amd64/arm64 and NVIDIA amd64 installs. Actual CUDA kernel tests require the
 configured trusted GPU runner; installation/CPU-fallback checks alone do not
 prove GPU acceleration. PyPI publishing waits for wheel validation.
+All three workflows can be run manually for validation. Python publishing
+requires an explicit release tag and opt-in for manual releases; see the
+release-recovery instructions in ``docs/publishing.rst``. Keep shared workflow
+permissions, concurrency, shell defaults, checkout options, and step naming
+consistent when adding CI jobs.
 
 Pull-request checklist
 ----------------------

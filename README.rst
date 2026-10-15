@@ -445,6 +445,11 @@ To upload the latest BatBot version to the Python Package Index (PyPI), follow t
 
 #. Wait for the automated GitHub CD actions to build and push to `PyPI <https://pypi.org/project/batbot/>`_ and `Docker Hub <https://hub.docker.com/r/kitware/batbot>`_.
 
+If a release tag already exists but publishing did not start, use the
+`manual release recovery instructions <docs/publishing.rst>`_. Select ``main``
+as the workflow ref, enter the existing ``release_tag``, and explicitly opt in
+to publishing after validation. Do not delete or move the tag to retry.
+
 Tests and Coverage
 ------------------
 

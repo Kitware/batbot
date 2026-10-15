@@ -26,3 +26,5 @@ example*.json
 
 assets/*.key
 assets/*.png
+
+output/

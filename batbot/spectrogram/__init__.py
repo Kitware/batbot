@@ -693,6 +693,8 @@ def tighten_ranges(
             value_ = np.iinfo(dtype_).max
             candidate_ = candidate_.astype(np.float32)
             for island_idx, (island_start, island_stop) in enumerate(islands_plotting):
+                island_start = max(0, island_start)
+                island_stop = min(candidate_.shape[1] - 1, island_stop)
                 candidate_[:, island_start:island_stop] += value_ * 0.15
                 candidate_[:, island_start] = value_
                 candidate_[:, island_stop] = value_
@@ -1425,7 +1427,7 @@ def compute_wrapper(
     plot_uncompressed_amplitude=False,
     include_original_sr=False,
     time_buffer_ms=1.0,
-    debug=False,
+    debug=True,
     **kwargs,
 ):
     """

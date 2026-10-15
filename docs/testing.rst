@@ -78,6 +78,11 @@ What the functional tests verify
      - Example outputs are isolated under temporary paths; notebook CI
        executes both tutorials and checks predictions, figures, and exports
      - ``test_batbot.py`` and ``scripts/check_notebooks.py``
+   * - Release source selection
+     - Real local Git remotes verify old/annotated tags, branch/tag name
+       collisions, immutable commit selection, opt-in publication, version
+       mismatches, failure outputs, and parsing without executing release code
+     - ``test_release_workflow.py``
 
 Audit findings and test design
 ------------------------------
