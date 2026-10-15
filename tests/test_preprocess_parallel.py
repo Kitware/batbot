@@ -2,6 +2,7 @@ import json
 import os
 from pathlib import Path
 
+import pytest
 from click.testing import CliRunner
 
 from batbot.batbot_cli import preprocess
@@ -44,3 +45,21 @@ def test_preprocess_parallel(tmp_path):
         assert os.path.exists(expected_file), 'Did not find file in filesystem: {}'.format(
             expected_file
         )
+        metadata = json.loads(Path(expected_file).read_text())
+        assert metadata['segments']
+        assert metadata['sr.hz'] == 250_000
+        assert metadata['duration.ms'] == pytest.approx(4999.022)
+        assert metadata['size']['uncompressed']['height.px'] == len(
+            metadata['frequencies']['pixels.hz']
+        )
+        assert metadata['spectrogram']['compressed.path'] == [
+            str(tmp_path / f'example{ii + 1}.01of01.compressed.jpg')
+        ]
+        for segment in metadata['segments']:
+            assert (
+                0
+                <= segment['segment start.ms']
+                < segment['segment end.ms']
+                <= metadata['duration.ms'] + 1
+            )
+            assert segment['lo f.hz'] <= segment['peak f.hz'] <= segment['hi f.hz']

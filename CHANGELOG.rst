@@ -4,6 +4,8 @@ Changelog
 Version 0.2.0
 -------------
 
+* Enforce at least 90% statement/branch coverage and add numerical, real-file, and end-to-end classification regressions.
+* Strengthen existing spectrogram/model/example assertions and document the functional-testing audit and remaining validation boundaries.
 * Add Codespaces/local dev-container setup and standalone Colab-compatible notebooks.
 * Add bring-your-own-file classification, spectrogram/debug walkthroughs, charts, and reproducible exports.
 * Expand contributor/architecture guides and distinguish BatBot/BatAI code contributions from NABat data submissions.

@@ -61,16 +61,39 @@ def test_prepare_image_pads_narrow_spectrogram():
 
 
 def test_predict_batches_and_averages(monkeypatch):
-    session = FakeSession()
+    class VaryingSession(FakeSession):
+        def run(self, output_names, inputs):
+            batch = inputs['input']
+            self.batch_sizes.append(len(batch))
+            scores = np.zeros((len(batch), len(classifier.CLASSES)), dtype=np.float32)
+            values = batch[:, 0, 0, 0].astype(np.float32) / 10
+            scores[:, classifier.CLASSES.index('EPFU')] = values
+            scores[:, classifier.CLASSES.index('NOISE')] = 1 - values
+            return [scores]
+
+    session = VaryingSession()
     monkeypatch.setattr(inference, 'fetch', lambda **kwargs: 'model.onnx')
     monkeypatch.setattr(inference, '_create_session', lambda *args, **kwargs: session)
-    windows = np.zeros((5, 224, 224, 3), dtype=np.uint8)
+    windows = np.stack([np.full((224, 224, 3), value, dtype=np.uint8) for value in [1, 2, 3, 4, 9]])
 
     output = classifier.post(classifier.predict(iter([(windows, 'mobilenet')]), batch_size=2))
 
     assert session.batch_sizes == [2, 2, 1]
-    assert output[0]['EPFU'] == 0.75
-    assert output[0]['NOISE'] == 0.25
+    # Average all five windows, not only the first or equally weighted batch means.
+    assert output[0]['EPFU'] == pytest.approx(0.38)
+    assert output[0]['NOISE'] == pytest.approx(0.62)
+
+
+def test_window_pixels_preserve_bgr_channels_stride_and_padding():
+    image = np.arange(4 * 9 * 3, dtype=np.uint8).reshape(4, 9, 3)
+    windows = dataloader._prepare_image(image, input_size=4, horizontal_scale=1, window_stride=2)
+    np.testing.assert_array_equal(
+        windows, np.stack([image[:, start : start + 4] for start in [0, 2, 4]])
+    )
+    narrow = image[:, :2]
+    padded = dataloader._prepare_image(narrow, input_size=4, horizontal_scale=1)
+    np.testing.assert_array_equal(padded[0, :, :2], narrow)
+    np.testing.assert_array_equal(padded[0, :, 2:], 0)
 
 
 def test_predict_runs_multiple_spectrograms_concurrently_and_preserves_order():
@@ -189,10 +212,16 @@ def test_real_model_inference(tmp_path, monkeypatch, reduced):
     result = results[0]
 
     assert results[0] == results[1]
-    assert result['label'] in classifier.CLASSES
+    assert result['label'] == 'NOISE'
     assert len(result['scores']) == len(classifier.CLASSES)
     assert len(result['top']) == 3
-    assert result['window_count'] > 0
+    assert result['window_count'] == 1
+    scores = np.asarray(list(result['scores'].values()))
+    assert np.isfinite(scores).all() and np.all((0 <= scores) & (scores <= 1))
+    assert scores.sum() == pytest.approx(1, abs=1e-5)
+    ranking = sorted(result['scores'], key=result['scores'].get, reverse=True)
+    assert [item['label'] for item in result['top']] == ranking[:3]
+    assert result['confidence'] == result['scores']['NOISE']
     options = runner.session.get_session_options()
     assert options.intra_op_num_threads == (2 if reduced else 0)
     assert options.inter_op_num_threads == (2 if reduced else 0)

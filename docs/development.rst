@@ -12,3 +12,4 @@ Reference guides
 
    architecture
    notebooks
+   testing

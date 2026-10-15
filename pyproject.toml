@@ -124,6 +124,7 @@ branch = true
 source = ["batbot"]
 
 [tool.coverage.report]
+fail_under = 90
 exclude_lines = [
     "pragma: no cover",
     "# NOCC",

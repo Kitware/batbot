@@ -186,6 +186,11 @@ memory. Use a real bundled-model smoke test alongside mocks when inference
 behavior changes. Keep Python 3.11 support, ``pytest==8.4.2``, and the existing
 Black/isort/Flake8 tools; mypy and classifier type-check gates are not enabled.
 
+The full suite enforces at least 90% combined statement/branch coverage.
+Favor behavioral assertions with independent expected values over execution-only
+smoke tests. See ``docs/testing.rst`` for the functional-test inventory, audit
+findings, coverage commands, and limits of hardware/scientific validation.
+
 CI tests source and built wheels on macOS/Linux/Windows with Python 3.11–3.14.
 Notebook execution runs separately on the minimum and newest supported Python,
 and documentation builds treat warnings as errors. Docker checks cover CPU

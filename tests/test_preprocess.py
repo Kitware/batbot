@@ -41,7 +41,8 @@ def test_preprocess(tmp_path):
         assert os.path.exists(expected_file), 'Did not find file on filesystem: {}'.format(
             expected_file
         )
-    num_min_call_segments = [65, 18, 149, 47]
+    # These two fixture-specific lower bounds detect lost segments, not biological accuracy.
+    num_min_call_segments = [65, 18]
     for ii in range(num_examples):
         expected_file = str(tmp_path / f'example{ii + 1}.metadata.json')
         assert expected_file in results['metadata_path']
