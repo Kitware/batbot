@@ -3,15 +3,15 @@ BatBot utilities file for common and handy functions.
 """
 
 import logging
-import os
 from logging.handlers import TimedRotatingFileHandler
 
+from batbot._config import VERBOSE
+
 DAYS = 21
-VERBOSE = os.getenv('VERBOSE', None) is not None
 DEFAULT_LOG_LEVEL = logging.DEBUG if VERBOSE else logging.INFO
 
 
-def init_logging():
+def init_logging() -> logging.Logger:
     """
     Setup Python's built in logging functionality with on-disk logging, and prettier logging with Rich
     """
